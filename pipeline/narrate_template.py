@@ -12,6 +12,7 @@ TIPS = {
     "territory": "动手之前先比一比：哪里最大？哪块棋需要补？",
     "endgame": "收官时先找最大的地方，能先手的先下。",
     "good": "这种好棋多看几遍，记住它的样子。",
+    "slip": "落子前多停一秒：先看看有没有更急、更大的地方。",
 }
 
 
@@ -76,6 +77,10 @@ def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
     f = _f(facts, "best_capture")
     if f:
         out.append(f"下 A 的话，可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
+    f = _f(facts, "slip")
+    if f:
+        who = "多数" if f["share"] == "most" else "很多"
+        out.append(f"和你水平差不多的人，{who}会下 A。这次是一时疏忽，你本来能找到的！")
     return out
 
 
@@ -100,6 +105,8 @@ def explain(kind: str, category: str, facts: list[dict], recommended: dict) -> d
     if kind == "good":
         return {"template": good(facts), "tip": TIPS["good"]}
     tip = TIPS.get(kind) if kind in ("missed_punish", "missed_urgent") else None
+    if _f(facts, "slip") and kind == "mistake":
+        tip = TIPS["slip"]
     return {"template": mistake(kind, facts, recommended), "tip": tip or TIPS.get(category, TIPS["territory"])}
 
 

@@ -1,6 +1,6 @@
 # go-review
 
-把孩子在野狐的对局拉下来，用本机 KataGo 复盘，生成静态网页发布到 Cloudflare Pages。
+把在野狐的对局拉下来，用本机 KataGo 复盘，生成静态网页发布到 Cloudflare Pages。
 
 设计文档：[docs/design-v1.md](docs/design-v1.md)；进度：[docs/progress.md](docs/progress.md)
 
@@ -21,6 +21,7 @@ python -m pipeline analyze 3         # 按序号或棋局 ID：整盘分析 → 
 python -m pipeline analyze --sgf a.sgf --color B
 python -m pipeline build             # 改了算法后，从 raw/ 重新生成全部页面数据（--no-engine 不跑 KataGo）
 python -m pipeline serve             # 本地预览 http://localhost:8000/ （iPad 预览加 --bind 0.0.0.0）
+python -m pipeline validate          # 用 10000 visits 和更强的人类档位复核关键点
 python -m pipeline show <棋局ID>
 python -m unittest discover -s tests
 ```

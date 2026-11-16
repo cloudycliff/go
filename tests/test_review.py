@@ -169,6 +169,29 @@ class FactsTest(unittest.TestCase):
         self.assertEqual(k.recommended, {"move": "pp", "source": "peer"})
         self.assertEqual({m["label"]: m["point"] for m in k.marks if m["type"] == "point"}, {"✕": "jj", "A": "pp", "B": "dd"})
 
+    def test_slip_when_own_level_finds_it(self):
+        b = board.Board(19)
+        level = [0.0] * 362
+        level[3 * 19 + 3] = 0.6  # "dd", the recommended move
+        before = resp([("dd", 3.0, 400, ["dd"])], 3.0)
+        after = resp([("qq", -1.0, 400, [])], -1.0, current="W")
+        after_board = b.copy()
+        after_board.play_sgf("B", "jj")
+        args = dict(
+            kind="mistake", student="B", size=19, number=30, played="jj", move_loss=4.0, severity="mistake",
+            segment_moves=1, segment_loss=4.0, before_board=b, after_board=after_board,
+            before=before, after=after, peer_policy=None,
+        )
+        k = facts.mistake_facts(**args, level_policy=level)
+        slip = next(f for f in k.facts if f["type"] == "slip")
+        self.assertEqual(slip["share"], "most")
+        explained = narrate_template.explain("mistake", k.category, k.facts, k.recommended)
+        self.assertIn("一时疏忽", " ".join(explained["template"]))
+        self.assertEqual(explained["tip"], narrate_template.TIPS["slip"])
+        level[3 * 19 + 3] = 0.1
+        k = facts.mistake_facts(**args, level_policy=level)
+        self.assertFalse(k.has("slip"))
+
 
 class SummaryTest(unittest.TestCase):
     def test_summary(self):

@@ -178,6 +178,8 @@ def keypoint_data(n: int, seg: keypoints.Segment, game: sgf.Game, raw: dict, p: 
             before=before,
             after=after,
             peer_policy=deep[i].get("humanPolicy") if i in deep else None,
+            # The overview pass used the student's own HumanSL profile.
+            level_policy=raw["overview"]["responses"][i].get("humanPolicy"),
             urgent_point=seg.extra("point"),
             urgent_turns=len(seg.turns),
             opponent_missed=bool(seg.extra("opponentMissed")),

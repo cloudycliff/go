@@ -195,6 +195,29 @@ def cmd_serve(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate(cfg: Config, args: argparse.Namespace) -> int:
+    from . import validate
+
+    ids = args.game_ids or sorted(p.name.split(".")[0] for p in cfg.raw_dir.glob("*.json.gz"))
+    engine = None if args.no_engine else build.LazyEngine(cfg, _out)
+    failed = 0
+    try:
+        for game_id in ids:
+            raw = analyze.load_raw(cfg.raw_dir / f"{game_id}.json.gz")
+            profiles = [analyze.student_profile(sgf.parse(raw["sgf"]), raw["studentColor"])]
+            verdicts = validate.validate(cfg, game_id, engine, _out)
+            validate.report(game_id, verdicts, profiles + validate.STRONG_PROFILES, _out)
+            failed += sum(not v.ok for v in verdicts)
+    except KataGoError as e:
+        _out(f"复核失败：{e}")
+        return 1
+    finally:
+        if engine:
+            engine.close()
+    _out(f"共 {failed} 个关键点没通过复核。" if failed else "全部关键点通过复核。")
+    return 0
+
+
 def _print_curve(responses: list[dict], color: str) -> None:
     """A rough text view of the student's score lead, to sanity-check an analysis."""
     sign = 1 if color == "B" else -1
@@ -239,6 +262,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--bind", default="127.0.0.1", help="用 0.0.0.0 让同一局域网的 iPad 访问")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("validate", help="用更深的搜索和更强的人类档位复核关键点")
+    p.add_argument("game_ids", nargs="*", help="棋局 ID；不写则复核 raw/ 里的全部对局")
+    p.add_argument("--no-engine", action="store_true", help="只用已缓存的复核结果")
+    p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("show", help="查看已保存的分析")
     p.add_argument("game_id")

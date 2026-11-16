@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 from .board import Board, other
 from .coords import sgf_to_xy, xy_to_sgf
-from .evaluate import find_move, gtp_sgf, phase, policy_top
+from .evaluate import find_move, gtp_sgf, phase, policy_at, policy_top
 
 PV_LIMIT = 12  # moves of a variation replayed and shown
 # A group "flips" when its owner's side of the ownership ends at <= -0.5 after falling by >= 0.8.
@@ -24,6 +24,9 @@ AREA_MIN = 5  # empty points before an area change is worth saying
 PEER_CLOSE = 1.0  # points: recommend the stronger players' move when it is this close to the AI's
 PEER_MIN_VISITS = 16
 MIN_CAPTURE = 2  # single stones taken somewhere in a long variation are mostly noise
+# Players at the student's own level play the recommended move this often: the mistake was a slip.
+SLIP_MANY = 0.25
+SLIP_MOST = 0.5
 
 STUDENT_LABELS = ["▲", "■"]
 OPPONENT_LABELS = ["△", "□"]
@@ -180,6 +183,7 @@ def mistake_facts(
     before: dict,
     after: dict,
     peer_policy: list[float] | None,
+    level_policy: list[float] | None = None,
     urgent_point: str | None = None,
     urgent_turns: int = 0,
     opponent_missed: bool = False,
@@ -288,6 +292,10 @@ def mistake_facts(
                 k.add("peer_choice", mark="A", sameAsAi=False, diff=round(peer_diff, 1), aiMark="B")
             else:
                 k.add("peer_choice", mark="A", sameAsAi=True)
+    # How often players at the student's own level find A: often means this was a slip.
+    level = policy_at(level_policy, rec, size) if level_policy else 0.0
+    if level >= SLIP_MANY and rec != played:
+        k.add("slip", mark="A", share="most" if level >= SLIP_MOST else "many")
     k.add("phase", phase=phase(number), category=k.category)
     k.title = title(kind, k)
     return k
