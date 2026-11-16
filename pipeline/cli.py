@@ -7,6 +7,7 @@ import hashlib
 import json
 import sys
 import unicodedata
+from datetime import datetime
 from pathlib import Path
 
 from . import analyze, build, fox, sgf
@@ -90,6 +91,8 @@ def _resolve_game(cfg: Config, target: str) -> tuple[str, str, str]:
 
 
 def cmd_analyze(cfg: Config, args: argparse.Namespace) -> int:
+    if args.latest:
+        return _analyze_latest(cfg, args)
     if args.sgf:
         text = Path(args.sgf).read_text(encoding="utf-8")
         game_id = "sgf-" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
@@ -101,15 +104,70 @@ def cmd_analyze(cfg: Config, args: argparse.Namespace) -> int:
             raise SystemExit("无法判断孩子执黑还是执白，请用 --color B 或 --color W 指定。")
     else:
         if not args.target:
-            raise SystemExit("请给出序号、棋局 ID，或用 --sgf 指定棋谱文件。")
+            raise SystemExit("请给出序号、棋局 ID，或用 --latest / --sgf。")
         game_id, text, color = _resolve_game(cfg, args.target)
         color = args.color or color
+    code = _analyze_one(cfg, game_id, text, color, args.force)
+    if code == 0 and args.publish:
+        return _publish(f"review: {game_id}")
+    return code
+
+
+def _analyze_latest(cfg: Config, args: argparse.Namespace) -> int:
+    """New games only; with none, stop before starting KataGo or touching git (for polling)."""
+    from . import publish
+
+    try:
+        with publish.Lock(cfg.cache_dir / "update.lock"):
+            uid, games = _cached_list(cfg)
+            analyzed = {p.name.split(".")[0] for p in cfg.raw_dir.glob("*.json.gz")}
+            fresh = publish.new_games(games, uid, analyzed, args.max)
+            if not fresh:
+                _out(f"{datetime.now():%Y-%m-%d %H:%M} 没有新对局，结束。")
+                return 0
+            _out(f"有 {len(fresh)} 局新对局：" + "、".join(f"{g.start:%m-%d %H:%M}（{g.chessid}）" for g in fresh))
+            done = []
+            for g in fresh:
+                code = _analyze_one(cfg, g.chessid, fox.fetch_sgf(g.chessid), g.student_color(uid), False)
+                if code != 0:
+                    _out(f"棋局 {g.chessid} 分析失败，停止。")
+                    break
+                done.append(g)
+            if done and args.publish:
+                dates = "、".join(f"{g.start:%m-%d}" for g in done)
+                code = _publish(f"review: {len(done)} new game(s) {dates}") or code
+            return 0 if len(done) == len(fresh) else 1
+    except publish.PublishError as e:
+        _out(str(e))
+        return 1
+
+
+def _publish(message: str) -> int:
+    from . import publish
+
+    try:
+        publish.publish(message, log=_out)
+    except publish.PublishError as e:
+        _out(f"发布失败：{e}")
+        return 1
+    return 0
+
+
+def cmd_publish(cfg: Config, args: argparse.Namespace) -> int:
+    return _publish(args.message or f"review: update {datetime.now():%Y-%m-%d %H:%M}")
+
+
+def _analyze_one(cfg: Config, game_id: str, text: str, color: str | None, force: bool) -> int:
+    """Whole-game analysis (unless already done), then the deep pass and the page data."""
+    if color is None:
+        _out(f"棋局 {game_id}：无法判断孩子执黑还是执白。")
+        return 1
     game = sgf.parse(text)
     if game.size != 19:
         _out(f"这是 {game.size} 路对局，目前只复盘 19 路对局。")
         return 1
     raw_path = cfg.raw_dir / f"{game_id}.json.gz"
-    if raw_path.exists() and not args.force:
+    if raw_path.exists() and not force:
         _out(f"{raw_path.name} 已有整盘分析（要重新分析请加 --force），直接生成复盘。")
         return _build(cfg, [game_id], use_engine=True)
 
@@ -256,7 +314,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sgf", help="改用本地 SGF 文件")
     p.add_argument("--color", choices=["B", "W"], help="孩子执色（自动判断失败时用）")
     p.add_argument("--force", action="store_true", help="已分析过也重新分析")
+    p.add_argument("--latest", action="store_true", help="只分析野狐上的新对局；没有就直接结束（适合定时运行）")
+    p.add_argument("--max", type=int, default=3, help="--latest 一次最多分析几局（默认 3）")
+    p.add_argument("--publish", action="store_true", help="完成后提交 site/ 和 raw/ 并推送（网站随之更新）")
     p.set_defaults(func=cmd_analyze)
+
+    p = sub.add_parser("publish", help="提交 site/ 和 raw/ 并推送")
+    p.add_argument("-m", "--message", help="提交说明")
+    p.set_defaults(func=cmd_publish)
 
     p = sub.add_parser("build", help="从已保存的分析生成复盘页面数据（需要时做深度分析）")
     p.add_argument("game_ids", nargs="*", help="棋局 ID；不写则处理 raw/ 里的全部对局")

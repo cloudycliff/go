@@ -21,11 +21,16 @@
 
 ```
 python -m pipeline list              # 最近的 19 路对局
-python -m pipeline analyze 3         # 按序号或棋局 ID：整盘分析 → 深度分析 → 生成 site/data
+python -m pipeline analyze --latest --publish   # 抓新对局 → 分析 → 提交推送（网站自动更新）；没有新对局就直接结束
+python -m pipeline analyze 3         # 按序号或棋局 ID：整盘分析 → 深度分析 → 生成 site/data（加 --publish 顺便发布）
 python -m pipeline analyze --sgf a.sgf --color B
 python -m pipeline build             # 改了算法后，从 raw/ 重新生成全部页面数据（--no-engine 不跑 KataGo，--no-llm 不请求 AI 讲解）
 python -m pipeline serve             # 本地预览 http://localhost:8000/ （iPad 预览加 --bind 0.0.0.0）
 python -m pipeline validate          # 用 10000 visits 和更强的人类档位复核关键点
 python -m pipeline show <棋局ID>
+python -m pipeline publish           # 只提交推送 site/ 和 raw/
 python -m unittest discover -s tests
 ```
+
+定时运行：`scripts\update.cmd` 等同于 `analyze --latest --publish`，输出追加到 `logs\update.log`，
+可以直接挂到 Windows 任务计划程序。

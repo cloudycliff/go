@@ -22,7 +22,19 @@
   家长已测，**iPad 待测**；家长不懂棋，关键点的教学价值待孩子本人或老师确认）。
 - [x] M3 LLM 讲解与校验：DeepSeek（`deepseek-flash`，关闭思考模式）。28 种故意违规的输出全部被拦下；
   3 局 13 个关键点真实输出最终通过 13 个，第一次就通过 12 个（2026-11-16，提示词第 3 版）。
-- [ ] M4 一条命令发布到 Cloudflare Pages。
+- [ ] M4 一条命令发布到 Cloudflare Pages：Pages 已绑定仓库（输出目录 `site`，无构建命令），推送即发布；
+  `analyze --latest --publish` 已写好（`pipeline/publish.py`），**待在默认权限模式下跑测试和真实运行**。
+
+## M4 做了什么
+
+- `analyze --latest`：取野狐最近的对局，只要**比已分析的最新一局更晚**的 19 路、≥ 40 手的对局（一次最多 `--max` 局，
+  默认 3，从旧到新）。没有新对局就打印一行后返回 0，不启动 KataGo、不碰 git，适合定时轮询。raw/ 为空时只取最新一局。
+- `--publish`：只 `git add`/`commit` `site/` 和 `raw/`（`commit -- <路径>`，别的已暂存文件不会混进去），再推送到
+  `origin main`；没有变化就不提交。不在 `main` 分支时拒绝发布。也可单独 `python -m pipeline publish`。
+- `.cache/update.lock` 防止两次定时运行重叠；超过 3 小时的锁视为上次崩溃留下的，自动清掉。
+- `scripts/update.cmd`：切到项目目录（避开同名的 site-packages 包）后运行上面的命令，日志追加到 `logs/update.log`。
+- 部署检查（2026-11-16）：所有响应带 `X-Robots-Tag: noindex, nofollow`；`raw/`、`config.toml`、`pipeline/` 不在站点里；
+  站点文件不含孩子昵称。**GitHub 仓库目前是公开的，raw/ 里的棋谱含孩子昵称，建议改成私有。**
 
 ## M3 做了什么
 
