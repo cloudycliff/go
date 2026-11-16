@@ -128,6 +128,9 @@ function keyPointCard(game, k) {
 
   const rec = k.recommended?.move;
   const best = k.marks.find((m) => m.role === "ai_best")?.point;
+  // Points the pipeline rated about as good as A (fact close_alternatives): also right answers.
+  const alikeLabels = (k.facts || []).find((f) => f.type === "close_alternatives")?.marks || [];
+  const alike = new Map((k.candidates || []).filter((c) => alikeLabels.includes(c.label)).map((c) => [c.point, c.label]));
   const summary = h("summary", {}, "看答案");
   const details = h("details", { class: "answer" },
     summary,
@@ -158,6 +161,7 @@ function keyPointCard(game, k) {
     let msg;
     if (k.kind === "good") msg = p === k.played ? "对了！就是这一手。" : "你选了 ◯。看看实战下的 A 好在哪里。";
     else if (p === rec || p === best) msg = "答对了！和推荐的下法一样。";
+    else if (alike.has(p)) msg = `答对了！${alike.get(p)} 和 A 差不多一样好。`;
     else if (p === k.played) msg = "你选的和实战一样（✕），看看哪里有问题。";
     else if (near(p, rec)) msg = "很接近了！推荐的是旁边的 A。";
     else msg = "你选了 ◯，对比一下推荐的 A。";

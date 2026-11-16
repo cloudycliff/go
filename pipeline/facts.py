@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from .board import Board, distance, other
 from .coords import sgf_to_xy, xy_to_sgf
 from .evaluate import find_move, gtp_sgf, phase, policy_at, policy_top
+from .shapes import describe
 
 PV_LIMIT = 12  # moves of a variation replayed and shown
 # A group "flips" when its owner's side of the ownership ends at <= -0.5 after falling by >= 0.8.
@@ -27,6 +28,7 @@ MIN_CAPTURE = 2  # single stones taken somewhere in a long variation are mostly 
 NEAR_LIBS = 3  # "A touches a group with only N liberties" is worth saying up to this many
 FAR_AWAY = 6  # lines between ✕ and A before "you played elsewhere" is said
 CLOSE_POINTS = 2.0  # moves within this many points of the best get a mark (C, D) and a table row
+ALT_CLOSE = 0.5  # a candidate this close to A is just as good an answer
 # Players at the student's own level play the recommended move this often: the mistake was a slip.
 SLIP_MANY = 0.25
 SLIP_MOST = 0.5
@@ -201,10 +203,58 @@ def near_group(k: KeyFacts, board: Board, point: str, student: str) -> None:
     if best is None:
         return
     stones, libs, color = best
+    extra = {}
+    if color == student:
+        after = board.copy()
+        after.play(student, xy)
+        joined, libs_after = after.group(xy)
+        if stones <= joined and len(libs_after) > len(libs):
+            extra["libertiesAfter"] = len(libs_after)
     k.group_fact(
         "rec_near_group", stones, color == student, pointMark="A",
-        owner="student" if color == student else "opponent", liberties=len(libs), count=len(stones),
+        owner="student" if color == student else "opponent", liberties=len(libs), count=len(stones), **extra,
     )
+
+
+def shape_names(k: KeyFacts, board: Board, moves: list[tuple[str, str]], student: str) -> None:
+    """`shape`: the name of each move's shape (跳, 扳, 挂角 ...), for the marks that have one."""
+    for mark, point in moves:
+        name = describe(board, point, student)
+        if name:
+            k.add("shape", mark=mark, shape=name)
+
+
+def played_short(k: KeyFacts, before_board: Board, after_board: Board, played: str, student: str) -> None:
+    """`played_short`: ✕ leaves its own group (2+ stones) with 1-2 liberties, fewer than before."""
+    xy = sgf_to_xy(played, after_board.size) if played else None
+    if xy is None or after_board.get(xy) != student:
+        return
+    stones, libs = after_board.group(xy)
+    shown = {p for p in stones if before_board.get(p) == student}
+    if len(stones) < 2 or len(libs) > 2 or not shown:
+        return
+    had = [len(before_board.group(n)[1]) for n in before_board.neighbors(xy) if before_board.get(n) == student]
+    if had and min(had) > len(libs):
+        k.group_fact("played_short", shown, True, liberties=len(libs), count=len(shown))
+
+
+def close_alternatives(k: KeyFacts, source: str) -> None:
+    """`close_alternatives`: other rated points about as good as A, so A is not the only answer.
+
+    B (the engine's first choice) counts unless A is the stronger players' move, whose text
+    already compares the two.
+    """
+    rows = {c["label"]: c for c in k.candidates}
+    a = rows.get("A")
+    if not a or a.get("diff") is None:
+        return
+    labels = [
+        c["label"] for c in k.candidates
+        if c["label"] in ("B", "C", "D", "E") and c.get("diff") is not None
+        and c["diff"] <= a["diff"] + ALT_CLOSE and not (c["label"] == "B" and source == "peer")
+    ]
+    if labels:
+        k.add("close_alternatives", mark="A", marks=labels)
 
 
 def _touching(board: Board, xy) -> dict[str, list[tuple[set, set]]]:
@@ -494,6 +544,8 @@ def mistake_facts(
         shown = {p for p in stones if before_board.get(p) == student}
         if len(stones) >= 2 and len(libs) == 1 and shown and shown <= lost_mine:
             k.group_fact("self_atari", shown, True, count=len(stones))
+    if not k.has("self_atari") and not k.has("atari_ignored"):
+        played_short(k, before_board, after_board, played, student)
     if lost_mine:
         fact = k.group_fact("refute_capture", lost_mine, True, count=len(lost_mine))
         saved = {p for p in lost_mine if rec_board.get(p) == student}
@@ -529,6 +581,8 @@ def mistake_facts(
         refute_squeeze(k, before_board, after_board, reply, student)
         shape_facts(k, before_board, rec, student)
         where_facts(k, after, played, rec, size)
+        shape_names(k, before_board, [("✕", played), ("A", rec)], student)
+    close_alternatives(k, source)
     if any(k.has(t) for t in ("group_dies", "group_lives", "refute_capture", "best_capture", "atari_ignored",
                               "rec_atari", "refute_squeeze")):
         k.category = "life_death"
@@ -582,6 +636,7 @@ def good_facts(
     near_group(k, before_board, played, student)
     shape_facts(k, before_board, played, student)
     where_facts(k, probe, common, played, size, prefix="common_")
+    shape_names(k, before_board, [("A", played), ("B", common)], student)
 
     taken = {p for p in good_lost[opponent] if before_board.get(p) == opponent}
     if len(taken) >= MIN_CAPTURE:

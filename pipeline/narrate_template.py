@@ -41,7 +41,42 @@ def follow_up_text(f: dict) -> str:
 
 def near_group_text(f: dict) -> str:
     whose = "你的" if f["owner"] == "student" else "对方的"
-    return f"{f['pointMark']} 紧挨着{whose} {f['mark']}，{f['mark']} 只剩 {f['liberties']} 口气。"
+    text = f"{f['pointMark']} 紧挨着{whose} {f['mark']}，{f['mark']} 只剩 {f['liberties']} 口气"
+    if f.get("libertiesAfter"):
+        return text + f"；下了 {f['pointMark']}，就长到 {f['libertiesAfter']} 口气。"
+    return text + "。"
+
+
+# A tactical shape name says the same as one of these facts about the same move.
+SHAPE_SAID_BY = {"粘": "rec_connects", "断": "rec_cuts", "挖": "rec_cuts", "打吃": "rec_atari",
+                 "提子": "best_capture"}
+
+
+def shape_text(facts: list[dict], first: str, second: str, second_name: str) -> str | None:
+    """E.g. "你下的 ✕ 是扳，A 是跳。", leaving out names another sentence already gives."""
+    names = {}
+    for f in facts:
+        if f["type"] != "shape" or f["mark"] not in (first, second):
+            continue
+        said = SHAPE_SAID_BY.get(f["shape"])
+        if said and any(g["type"] == said and g.get("moveMark", "A") == f["mark"] for g in facts):
+            continue
+        names[f["mark"]] = f["shape"]
+    if first in names and names.get(second) == names[first]:
+        return f"{first} 和 {second_name}{second} 都是{names[first]}，但地方不一样。"
+    parts = []
+    if first in names:
+        parts.append(f"你下的 {first} 是{names[first]}")
+    if second in names:
+        parts.append(f"{second_name}{second} 是{names[second]}")
+    return "，".join(parts) + "。" if parts else None
+
+
+def close_alternatives_text(f: dict) -> str:
+    others = f["marks"]
+    if len(others) == 1:
+        return f"{others[0]} 和 {f['mark']} 差不多一样好，下 {f['mark']} 或 {others[0]} 都可以。"
+    return f"{'、'.join([f['mark']] + others)} 都差不多一样好，下哪一个都可以。"
 
 
 def why_text(f: dict) -> str:
@@ -112,6 +147,9 @@ def mistake(kind: str, facts: list[dict], recommended: dict, table: bool = False
     f = _f(facts, "self_atari")
     if f:
         out.append(f"这手让 {f['mark']} 只剩一口气了。")
+    f = _f(facts, "played_short")
+    if f:
+        out.append(f"下了 ✕ 以后，你的 {f['mark']} 只剩 {f['liberties']} 口气了。")
     f = _f(facts, "refute_capture")
     if f:
         out.append(f"对方接下来可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
@@ -125,6 +163,9 @@ def mistake(kind: str, facts: list[dict], recommended: dict, table: bool = False
     if f:
         out.append(f"{f['region']}大约 {f['count']} 个点的地，变成了对方的。")
     out += [why_text(f) for f in facts if f["type"] in WHAT_HAPPENED]
+    text = shape_text(facts, "✕", "A", "")
+    if text:
+        out.append(text)
 
     peer = _f(facts, "peer_choice")
     if recommended.get("source") == "peer" and peer:
@@ -148,6 +189,9 @@ def mistake(kind: str, facts: list[dict], recommended: dict, table: bool = False
     if f:
         out.append(f"下 A 的话，可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
     out += [why_text(f) for f in facts if f["type"] in WHY_A]
+    f = _f(facts, "close_alternatives")
+    if f:
+        out.append(close_alternatives_text(f))
     f = _f(facts, "slip")
     if f:
         who = "多数" if f["share"] == "most" else "很多"
@@ -160,6 +204,9 @@ def good(facts: list[dict]) -> list[str]:
     common = _f(facts, "common_move")
     if common:
         out.append(f"和你水平差不多的人，多数会下 B，那样要亏{_points(common['scoreLoss'])}。")
+    text = shape_text(facts, "A", "B", "大家常下的 ")
+    if text:
+        out.append(text)
     f = _f(facts, "common_capture")
     if f:
         out.append(f"下 B 的话，对方可以吃掉 {f['mark']} 这 {f['count']} 颗子。")

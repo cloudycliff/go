@@ -162,6 +162,22 @@
   只保留等级（"✕ 这手算是问题手"）和表里没有的原因。表不显示时（不到两行有分数）照旧写全。
   判断条件 `narrate_template.table_shown()` 和 `game.js` 的 `candidateTable()` 一致。
 
+## 棋形名、气和"都可以"（2026-11-17）
+
+参考 LizzieYzy teacher 的 `MoveShapes` / `TacticalDetectors`（只借思路，代码自写）：
+
+- `pipeline/shapes.py`：只看棋盘给一手棋命名：提子、打吃、粘、挖、断；扳、靠、长；占角、点三三、挂角、守角；
+  拆一～拆四（三、四线，沿边，中间无对方子）；尖、跳、小飞、大跳、大飞（直线跳中间须空）；打入。认不出就不命名。
+  新事实 `shape`（✕/A，好棋是 A/B），句子如"你下的 ✕ 是扳，A 是跳。"；同名时说"✕ 和 A 都是粘，但地方不一样"；
+  粘/断/挖/打吃/提子已有 `rec_connects`/`rec_cuts`/`rec_atari`/`best_capture` 说同一件事时不再重复。
+- 气：TacticalDetectors 的"缺气、断点、叫吃"多数已由 `rec_near_group`、`rec_cuts`、`rec_atari`、`refute_squeeze`
+  覆盖。新增 `rec_near_group.libertiesAfter`（A 救自己的棋时"下了 A 就长到 N 口气"）和 `played_short`
+  （✕ 让自己 2 子以上的棋块只剩 1～2 口气且比原来少，`self_atari` 之外）。没有借鉴它的眼形风险检测；
+  也没有照搬它清空锚点集合的写法。
+- `close_alternatives`：候选点表里 B/C/D/E 与 A 相差 ≤0.5 目（`ALT_CLOSE`）的，讲解说"下 A 或 C 都可以"；
+  A 来自高一档时不算 B（那句已经比过 A 和 B）。页面上点中这些点，反馈"答对了！C 和 A 差不多一样好"。
+  4 局 16 个关键点里 6 个有这句。
+
 ## 下一步
 
 1. iPad 实测；请孩子看一盘，问"这几个点你下的时候是否觉得别扭、讲解和候选点表看不看得懂"。
