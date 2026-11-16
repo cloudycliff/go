@@ -335,20 +335,26 @@ def recommend(
 
 
 def close_candidates(
-    before: dict, k: KeyFacts, played: str, rec: str, best: str, size: int
+    before: dict, k: KeyFacts, played: str, rec: str, best: str, size: int,
+    student: str = "B", played_loss: float | None = None,
 ) -> list[dict]:
     """The rated points shown as a table: A, B, the move played ✕, and close alternatives C, D.
 
-    `diff` is points behind the engine's first choice, rounded to 0.1; differences are safe to take
-    from Black's scores because both sides of a subtraction see the same sign.
+    `diff` is points behind the engine's first choice for the student, rounded to 0.1. Scores are
+    Black's, so for White a higher score is worse and the subtraction is flipped. The move played
+    uses `played_loss` (the loss the page text quotes) when given, since it is often searched
+    too little in `before` to have a trustworthy score, or not at all. `first` marks the engine's
+    first choice so the page can call only that row "最好".
     """
+    sign = 1.0 if student == "B" else -1.0
+    first = gtp_sgf(before["moveInfos"][0]["move"], size)
     top = before["moveInfos"][0]["scoreLead"]
     best_visits = before["moveInfos"][0]["visits"]
     rows: dict[str, float] = {}
     for info in before["moveInfos"][:10]:
         if info["visits"] < max(8, best_visits / 20):
             continue
-        diff = round(max(0.0, top - info["scoreLead"]), 1)
+        diff = round(max(0.0, sign * (top - info["scoreLead"])), 1)
         if diff <= CLOSE_POINTS:
             rows[gtp_sgf(info["move"], size)] = diff
     played_info = find_move(before, played, size)
@@ -362,13 +368,16 @@ def close_candidates(
     for label, point, role, note in named:
         if not point:
             continue
-        if point in rows:
+        if point == played and played_loss is not None:
+            diff = round(max(0.0, played_loss), 1)
+        elif point in rows:
             diff = rows[point]
         elif point == played and played_info:
-            diff = round(max(0.0, top - played_info["scoreLead"]), 1)
+            diff = round(max(0.0, sign * (top - played_info["scoreLead"])), 1)
         else:
             diff = None
-        out.append({"label": label, "point": point, "diff": diff, "role": role, "note": note})
+        out.append({"label": label, "point": point, "diff": diff, "role": role, "note": note,
+                    "first": point == first})
     extra = iter("CDE")
     for point, diff in sorted(rows.items(), key=lambda r: r[1]):
         if point in shown:
@@ -378,7 +387,8 @@ def close_candidates(
             break
         shown.add(point)
         k.mark_point(label, point, "alternative")
-        out.append({"label": label, "point": point, "diff": diff, "role": "alternative", "note": "也可以"})
+        out.append({"label": label, "point": point, "diff": diff, "role": "alternative", "note": "也可以",
+                    "first": point == first})
     return out
 
 
@@ -444,7 +454,7 @@ def mistake_facts(
     if rec != best and best != played:
         k.mark_point("B", best, "ai_best")
     k.recommended = {"move": rec, "source": source}
-    k.candidates = close_candidates(before, k, played, rec, best, size)
+    k.candidates = close_candidates(before, k, played, rec, best, size, student=student, played_loss=move_loss)
     follow_up(k, played=played, rec=rec, after=after, probe_a=probe_a, student=student, size=size)
 
     k.add("played", mark="✕")

@@ -25,6 +25,17 @@ class CandidatesTest(unittest.TestCase):
         self.assertEqual(by_label["C"]["point"], "dp")  # within 2 points, enough visits
         self.assertNotIn("jj", [r["point"] for r in rows])  # too few visits to trust
         self.assertIn("C", {m["label"] for m in k.marks})
+        self.assertEqual([r["label"] for r in rows if r["first"]], ["B"])
+
+    def test_white_diff_is_measured_from_whites_side(self):
+        # Scores are Black's: for White the first choice has the lowest score.
+        before = resp([("pd", -5.0, 400, []), ("qf", -3.8, 200, []), ("dp", -6.0, 150, [])], -5.0, current="W")
+        rows = facts.close_candidates(before, key(), played="cc", rec="qf", best="pd", size=19,
+                                      student="W", played_loss=9.4)
+        by_label = {r["label"]: r for r in rows}
+        self.assertEqual(by_label["A"]["diff"], 1.2)
+        self.assertEqual(by_label["✕"]["diff"], 9.4)  # the evaluated loss, not a thin search
+        self.assertEqual(by_label["C"]["diff"], 0.0)  # better for White than the first choice: clamp
 
 
 class FollowUpTest(unittest.TestCase):
