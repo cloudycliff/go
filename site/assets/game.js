@@ -38,6 +38,19 @@ function richText(text) {
   return out;
 }
 
+// LizzieYzy-style list of the points the AI would consider, with how much each costs
+// against its first choice.  Points the AI rates as equal show "最好".
+function candidateTable(list) {
+  const rows = (list || []).filter((c) => c.label && c.diff != null);
+  if (rows.length < 2) return null;
+  return h("table", { class: "cands" },
+    h("thead", {}, h("tr", {}, h("th", {}, "下在"), h("th", {}, "比最好的差"), h("th", {}, "说明"))),
+    h("tbody", {}, rows.map((c) => h("tr", { class: c.role === "played" ? "played" : "" },
+      h("td", {}, richText(c.label)),
+      h("td", {}, c.diff < 0.5 ? "最好" : `约 ${Math.round(c.diff)} 目`),
+      h("td", {}, c.note || "")))));
+}
+
 function keyPointCard(game, k) {
   const base = positionAt(game, k.position.moveIndex);
   const prevMove = game.moves[k.position.moveIndex - 1];
@@ -121,6 +134,7 @@ function keyPointCard(game, k) {
       feedback,
       h("h4", {}, "发生了什么"),
       h("ul", { class: "facts" }, k.explain.template.map((s) => h("li", {}, richText(s)))),
+      candidateTable(k.candidates),
       k.explain.tip ? h("p", { class: "tip" }, h("b", {}, "下次先看："), k.explain.tip) : null,
       k.explain.llm?.verified ? h("div", { class: "llm" },
         h("h4", {}, "AI 老师说 ", h("span", { class: "badge-ref" }, "仅供参考")),

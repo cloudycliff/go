@@ -8,6 +8,7 @@ the template text.
 
 from __future__ import annotations
 
+import difflib
 import re
 
 MARK_CHARS = "▲△■□✕"
@@ -141,6 +142,20 @@ def check_sentence(text: str, refs: list, facts: dict[str, dict], marks: set[str
     return problems
 
 
+def _norm(text: str) -> str:
+    return re.sub(r"[\s，。！？、：；“”‘’（）()·—…]", "", text or "")
+
+
+def _duplicate(a: str, b: str) -> bool:
+    """Two sentences say the same thing when one contains the other (or differs only a little)."""
+    na, nb = _norm(a), _norm(b)
+    if len(na) < 4 or len(nb) < 4:
+        return na == nb
+    if na in nb or nb in na:
+        return True
+    return difflib.SequenceMatcher(None, na, nb).ratio() >= 0.8
+
+
 def verify(output, facts: list[dict], marks: list[dict]) -> list[str]:
     """Returns the violations; an empty list means the explanation may be shown."""
     if not isinstance(output, dict):
@@ -163,4 +178,12 @@ def verify(output, facts: list[dict], marks: list[dict]) -> list[str]:
         problems.append("缺少 tip")
     else:
         problems += check_sentence(tip.get("text"), tip.get("refs"), by_id, labels, "提示")
+    # Repeating oneself is how the model fills the required length when the facts are thin.
+    texts = [(f"第 {n} 句", s.get("text")) for n, s in enumerate(sentences, 1) if isinstance(s, dict)]
+    if isinstance(tip, dict):
+        texts.append(("提示", tip.get("text")))
+    for i in range(len(texts)):
+        for j in range(i + 1, len(texts)):
+            if _duplicate(texts[i][1], texts[j][1]):
+                problems.append(f"{texts[i][0]}和{texts[j][0]}说的是同一件事，不要重复")
     return problems

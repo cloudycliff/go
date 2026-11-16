@@ -62,6 +62,7 @@ def payload(kp: dict) -> dict:
     return {
         "类型": KIND_ZH.get(kp["kind"], kp["kind"]),
         "标记": sorted({m["label"] for m in kp["marks"] if m.get("label")}),
+        "可下点": [c for c in kp.get("candidates", []) if c.get("label")],
         "事实": [{**f, "含义": narrate_template.describe(f)} for f in facts],
     }
 

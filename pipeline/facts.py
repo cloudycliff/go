@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .board import Board, other
+from .board import Board, distance, other
 from .coords import sgf_to_xy, xy_to_sgf
 from .evaluate import find_move, gtp_sgf, phase, policy_at, policy_top
 
@@ -26,6 +26,7 @@ PEER_MIN_VISITS = 16
 MIN_CAPTURE = 2  # single stones taken somewhere in a long variation are mostly noise
 NEAR_LIBS = 3  # "A touches a group with only N liberties" is worth saying up to this many
 FAR_AWAY = 6  # lines between ✕ and A before "you played elsewhere" is said
+CLOSE_POINTS = 2.0  # moves within this many points of the best get a mark (C, D) and a table row
 # Players at the student's own level play the recommended move this often: the mistake was a slip.
 SLIP_MANY = 0.25
 SLIP_MOST = 0.5
@@ -46,6 +47,7 @@ class KeyFacts:
     marks: list[dict] = field(default_factory=list)
     lines: list[dict] = field(default_factory=list)
     recommended: dict | None = None
+    candidates: list[dict] = field(default_factory=list)  # every rated point, for the page's table
     category: str = "territory"
     title: str = ""
 
@@ -300,6 +302,109 @@ def where_facts(k: KeyFacts, after: dict, played: str, rec: str, size: int, pref
             k.add(f"{prefix}opponent_wants", mark="A", exact=reply == r, **({"commonMark": "B"} if prefix else {}))
 
 
+@dataclass
+class Recommend:
+    best: str  # the engine's first choice (SGF)
+    best_lead: float  # points ahead after it, from the student's side
+    move: str  # what the page recommends
+    source: str  # "ai" / "peer" / "urgent"
+    peer: str  # the stronger players' usual move, "" when unknown
+    peer_diff: float | None  # points between `best` and `peer`
+
+
+def recommend(
+    *, kind: str, played: str, before: dict, peer_policy: list[float] | None,
+    urgent_point: str | None, size: int, student: str,
+) -> Recommend:
+    """Which move the page points at: the engine's choice, or the stronger players' when close."""
+    best = gtp_sgf(before["moveInfos"][0]["move"], size)
+    sign = 1.0 if student == "B" else -1.0
+    best_lead = sign * before["moveInfos"][0]["scoreLead"]
+    rec, source = best, "ai"
+    if kind == "missed_urgent" and urgent_point:
+        rec = urgent_point if find_move(before, urgent_point, size) else best
+        source = "urgent"
+    peer = policy_top(peer_policy, size)
+    peer_info = find_move(before, peer, size) if peer else None
+    peer_diff = None
+    if peer_info is not None and peer_info["visits"] >= PEER_MIN_VISITS:
+        peer_diff = max(0.0, best_lead - sign * peer_info["scoreLead"])
+    if source == "ai" and peer and peer != best and peer != played and peer_diff is not None and peer_diff <= PEER_CLOSE:
+        rec, source = peer, "peer"
+    return Recommend(best, best_lead, rec, source, peer, peer_diff)
+
+
+def close_candidates(
+    before: dict, k: KeyFacts, played: str, rec: str, best: str, size: int
+) -> list[dict]:
+    """The rated points shown as a table: A, B, the move played ✕, and close alternatives C, D.
+
+    `diff` is points behind the engine's first choice, rounded to 0.1; differences are safe to take
+    from Black's scores because both sides of a subtraction see the same sign.
+    """
+    top = before["moveInfos"][0]["scoreLead"]
+    best_visits = before["moveInfos"][0]["visits"]
+    rows: dict[str, float] = {}
+    for info in before["moveInfos"][:10]:
+        if info["visits"] < max(8, best_visits / 20):
+            continue
+        diff = round(max(0.0, top - info["scoreLead"]), 1)
+        if diff <= CLOSE_POINTS:
+            rows[gtp_sgf(info["move"], size)] = diff
+    played_info = find_move(before, played, size)
+    out: list[dict] = []
+    shown = {rec, best, played}
+    named = (
+        ("A", rec, "recommended", "推荐"),
+        ("B", best if rec != best else None, "ai_best", "AI 最喜欢"),
+        ("✕", played, "played", "你下的"),
+    )
+    for label, point, role, note in named:
+        if not point:
+            continue
+        if point in rows:
+            diff = rows[point]
+        elif point == played and played_info:
+            diff = round(max(0.0, top - played_info["scoreLead"]), 1)
+        else:
+            diff = None
+        out.append({"label": label, "point": point, "diff": diff, "role": role, "note": note})
+    extra = iter("CDE")
+    for point, diff in sorted(rows.items(), key=lambda r: r[1]):
+        if point in shown:
+            continue
+        label = next(extra, None)
+        if label is None:
+            break
+        shown.add(point)
+        k.mark_point(label, point, "alternative")
+        out.append({"label": label, "point": point, "diff": diff, "role": "alternative", "note": "也可以"})
+    return out
+
+
+def follow_up(
+    k: KeyFacts, *, played: str, rec: str, after: dict, probe_a: dict | None, student: str, size: int
+) -> None:
+    """What the two moves are worth after one exchange: each with the opponent's best answer.
+
+    `after` is the position after the move played, `probe_a` the position after the recommended
+    move; each is worth the lead its own search reports (the same player is to move in both).
+    """
+    if not probe_a or not after.get("moveInfos") or not probe_a.get("moveInfos"):
+        return
+    sign = 1.0 if student == "B" else -1.0
+    lead_a = sign * probe_a["rootInfo"]["scoreLead"]
+    lead_x = sign * after["rootInfo"]["scoreLead"]
+    reply_a = gtp_sgf(probe_a["moveInfos"][0]["move"], size)
+    reply_x = gtp_sgf(after["moveInfos"][0]["move"], size)
+    k.add(
+        "follow_up", moveMark="A", playedMark="✕",
+        leadAfterA=round(lead_a, 1), leadAfterPlayed=round(lead_x, 1), diff=round(lead_a - lead_x, 1),
+        replyNearA=distance(sgf_to_xy(reply_a, size), sgf_to_xy(rec, size)) <= 2,
+        replyNearPlayed=distance(sgf_to_xy(reply_x, size), sgf_to_xy(played, size)) <= 2,
+    )
+
+
 def mistake_facts(
     *,
     kind: str,
@@ -322,31 +427,25 @@ def mistake_facts(
     urgent_turns: int = 0,
     opponent_missed: bool = False,
     opponent_loss: float | None = None,
+    probe_a: dict | None = None,  # the position after the recommended move, analysed
 ) -> KeyFacts:
     """Facts for a mistake, a missed punishment or a missed urgent point."""
     k = KeyFacts()
     opponent = other(student)
     k.mark_point("✕", played, "played")
 
-    # What to recommend: the AI's choice, or the stronger players' choice when it is close.
-    best = gtp_sgf(before["moveInfos"][0]["move"], size)
-    sign = 1.0 if student == "B" else -1.0
-    best_lead = sign * before["moveInfos"][0]["scoreLead"]
-    rec, source = best, "ai"
-    if kind == "missed_urgent" and urgent_point:
-        rec = urgent_point if find_move(before, urgent_point, size) else best
-        source = "urgent"
-    peer = policy_top(peer_policy, size)
-    peer_info = find_move(before, peer, size) if peer else None
-    peer_diff = None
-    if peer_info is not None and peer_info["visits"] >= PEER_MIN_VISITS:
-        peer_diff = max(0.0, best_lead - sign * peer_info["scoreLead"])
-    if source == "ai" and peer and peer != best and peer != played and peer_diff is not None and peer_diff <= PEER_CLOSE:
-        rec, source = peer, "peer"
+    choice = recommend(
+        kind=kind, played=played, before=before, peer_policy=peer_policy,
+        urgent_point=urgent_point, size=size, student=student,
+    )
+    best, best_lead, rec, source = choice.best, choice.best_lead, choice.move, choice.source
+    peer, peer_diff = choice.peer, choice.peer_diff
     k.mark_point("A", rec, "recommended")
     if rec != best and best != played:
         k.mark_point("B", best, "ai_best")
     k.recommended = {"move": rec, "source": source}
+    k.candidates = close_candidates(before, k, played, rec, best, size)
+    follow_up(k, played=played, rec=rec, after=after, probe_a=probe_a, student=student, size=size)
 
     k.add("played", mark="✕")
     k.add("recommended", mark="A", source=source)

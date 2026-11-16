@@ -24,6 +24,27 @@ def _points(n: int) -> str:
     return f"约 {n} 目" if n >= 1 else "不到 1 目"
 
 
+def candidates_text(candidates: list[dict]) -> str:
+    """'AI 认为可下的点：A（最好）、C（差不到 1 目）、D（差约 2 目）。' — the LizzieYzy-style list."""
+    parts = []
+    for c in candidates:
+        if c.get("diff") is None:
+            continue
+        parts.append(f"{c['label']}（{'最好' if c['diff'] < 0.1 else _points(round(c['diff']))}）")
+    return "AI 认为可下的点：" + "、".join(parts) + "。" if parts else ""
+
+
+def follow_up_text(f: dict) -> str:
+    """What each move is worth after the opponent's best answer."""
+    where_a = "就在 A 附近" if f.get("replyNearA") else "在别处"
+    return (
+        f"下 {f['moveMark']} 以后，对方最强的一手{where_a}，这时你"
+        f"{'领先' if f['leadAfterA'] >= 0 else '落后'}约 {abs(round(f['leadAfterA']))} 目；"
+        f"实战 {f['playedMark']} 后对方应一手，你{'领先' if f['leadAfterPlayed'] >= 0 else '落后'}"
+        f"约 {abs(round(f['leadAfterPlayed']))} 目。"
+    )
+
+
 def near_group_text(f: dict) -> str:
     whose = "你的" if f["owner"] == "student" else "对方的"
     return f"{f['pointMark']} 紧挨着{whose} {f['mark']}，{f['mark']} 只剩 {f['liberties']} 口气。"
@@ -52,11 +73,14 @@ def why_text(f: dict) -> str:
     if t == "common_opponent_wants":
         where = "A" if f.get("exact") else "A 旁边"
         return f"假如你下的是 B，对方下一步最想下的正是 {where}。你抢先下了 A。"
+    if t == "follow_up":
+        return follow_up_text(f)
     return ""
 
 
 WHAT_HAPPENED = ("far_away", "opponent_wants", "refute_squeeze")
-WHY_A = ("rec_connects", "rec_cuts", "rec_atari", "rec_presses", "common_far_away", "common_opponent_wants")
+WHY_A = ("rec_connects", "rec_cuts", "rec_atari", "rec_presses", "common_far_away", "common_opponent_wants",
+         "follow_up")
 
 
 PHASE_ZH = {"opening": "布局", "middle": "中盘", "endgame": "官子"}
@@ -93,12 +117,20 @@ def describe(f: dict) -> str:
         "common_group_dies": f"下 B 的话，{f.get('mark')} 这块棋就危险了。",
         "phase": f"第 {f.get('move')} 手，{PHASE_ZH.get(f.get('phase'), '')}阶段，类别：{CATEGORY_LONG.get(f.get('category'), '其他')}。",
     }
+    if t == "follow_up":
+        where_a = "就在 A 附近" if f.get("replyNearA") else "在别处"
+        return (
+            f"下 A 以后，对方最强的一手{where_a}，这时孩子"
+            f"{'领先' if f['leadAfterA'] >= 0 else '落后'}约 {abs(round(f['leadAfterA']))} 目；"
+            f"实战 ✕ 后对方应一手，孩子{'领先' if f['leadAfterPlayed'] >= 0 else '落后'}"
+            f"约 {abs(round(f['leadAfterPlayed']))} 目，两者相差约 {abs(round(f['diff']))} 目。"
+        )
     if t in WHAT_HAPPENED or t in WHY_A:
         return why_text(f)
     return texts.get(t, "")
 
 
-def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
+def mistake(kind: str, facts: list[dict], recommended: dict, candidates: list[dict] | None = None) -> list[str]:
     out = ["你下了 ✕。"]
     loss = _f(facts, "loss")
     seg = _f(facts, "segment_loss")
@@ -156,6 +188,10 @@ def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
     if f:
         out.append(f"下 A 的话，可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
     out += [why_text(f) for f in facts if f["type"] in WHY_A]
+    if candidates:
+        text = candidates_text(candidates)
+        if text:
+            out.append(text)
     f = _f(facts, "slip")
     if f:
         who = "多数" if f["share"] == "most" else "很多"
@@ -184,13 +220,18 @@ def good(facts: list[dict]) -> list[str]:
     return out
 
 
-def explain(kind: str, category: str, facts: list[dict], recommended: dict) -> dict:
+def explain(
+    kind: str, category: str, facts: list[dict], recommended: dict, candidates: list[dict] | None = None
+) -> dict:
     if kind == "good":
         return {"template": good(facts), "tip": TIPS["good"]}
     tip = TIPS.get(kind) if kind in ("missed_punish", "missed_urgent") else None
     if _f(facts, "slip") and kind == "mistake":
         tip = TIPS["slip"]
-    return {"template": mistake(kind, facts, recommended), "tip": tip or TIPS.get(category, TIPS["territory"])}
+    return {
+        "template": mistake(kind, facts, recommended, candidates),
+        "tip": tip or TIPS.get(category, TIPS["territory"]),
+    }
 
 
 CATEGORY_ZH = {"life_death": "死活", "big_point": "大场", "territory": "实地", "endgame": "官子"}

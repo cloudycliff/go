@@ -43,7 +43,7 @@ class Plan:
     segments: list[keypoints.Segment]
     selection: keypoints.Selection
     turns: set[int]  # positions the deep pass should cover
-    probes: set[tuple[int, str]]  # (move index, point) of usual moves to try instead of a good move
+    probes: set[tuple[int, str]]  # (move index, point) of moves not played that the facts look at
 
 
 def _sign(color: str) -> float:
@@ -91,10 +91,22 @@ def plan(game: sgf.Game, raw: dict) -> Plan:
     selection = keypoints.select(segs, evals, color)
     turns: set[int] = set()
     wanted: set[tuple[int, str]] = set()
+    by_index = {e.index: e for e in evals}
+    urgent = {c.index: c.extra.get("point") for c in cands if c.kind == "missed_urgent"}
     for s in keypoints.pool(segs) + selection.keypoints:
         turns |= {s.index, s.index + 1}
         if s.kind == "good":
             wanted.add((s.index, s.extra("common")))
+            continue
+        # The position after the recommended move, to compare it with the move played.
+        e = by_index[s.index]
+        choice = facts.recommend(
+            kind=s.kind, played=e.point, before=responses[s.index],
+            peer_policy=raw.get("deep", {}).get("responses", {}).get(str(s.index), {}).get("humanPolicy"),
+            urgent_point=urgent.get(s.index), size=game.size, student=color,
+        )
+        if choice.move and choice.move != e.point:
+            wanted.add((s.index, choice.move))
     return Plan(evals, responses, segs, selection, turns, wanted)
 
 
@@ -117,9 +129,10 @@ def ensure_deep(cfg: Config, game: sgf.Game, raw: dict, raw_path: Path, engine: 
             )
             analyze.add_deep(raw, responses, params)
         if probes:
-            log(f"试下 {len(probes)} 个“常见下法”")
+            log(f"试下 {len(probes)} 个局面（推荐点和常见下法）")
+            # Same depth as the deep pass: the comparison needs the two searches to be as exact.
             raw.setdefault("probes", {}).update(
-                analyze.probe(engine.get(), game, raw["studentColor"], probes, max(400, cfg.deep_visits // 3))
+                analyze.probe(engine.get(), game, raw["studentColor"], probes, max(800, cfg.deep_visits))
             )
         analyze.write_raw(raw_path, raw)
         current = plan(game, raw)
@@ -161,6 +174,11 @@ def keypoint_data(n: int, seg: keypoints.Segment, game: sgf.Game, raw: dict, p: 
         )
     else:
         opponent = seg.extra("opponent")
+        peer_policy = deep[i].get("humanPolicy") if i in deep else None
+        choice = facts.recommend(
+            kind=seg.kind, played=point, before=before, peer_policy=peer_policy,
+            urgent_point=seg.extra("point"), size=game.size, student=color,
+        )
         k = facts.mistake_facts(
             kind=seg.kind,
             student=color,
@@ -177,15 +195,16 @@ def keypoint_data(n: int, seg: keypoints.Segment, game: sgf.Game, raw: dict, p: 
             after_board=boards[i + 1],
             before=before,
             after=after,
-            peer_policy=deep[i].get("humanPolicy") if i in deep else None,
+            peer_policy=peer_policy,
             # The overview pass used the student's own HumanSL profile.
             level_policy=raw["overview"]["responses"][i].get("humanPolicy"),
             urgent_point=seg.extra("point"),
             urgent_turns=len(seg.turns),
             opponent_missed=bool(seg.extra("opponentMissed")),
             opponent_loss=by_index[opponent].score_loss if opponent is not None else None,
+            probe_a=raw.get("probes", {}).get(f"{i}:{choice.move}"),
         )
-    explain = narrate_template.explain(seg.kind, k.category, k.facts, k.recommended or {})
+    explain = narrate_template.explain(seg.kind, k.category, k.facts, k.recommended or {}, k.candidates)
     return {
         "id": f"k{n}",
         "kind": seg.kind,
@@ -201,6 +220,7 @@ def keypoint_data(n: int, seg: keypoints.Segment, game: sgf.Game, raw: dict, p: 
         "deep": i in deep and i + 1 in deep,
         "position": {"moveIndex": i},
         "marks": k.marks,
+        "candidates": k.candidates,
         "played": point,
         "recommended": k.recommended,
         "lines": k.lines,
