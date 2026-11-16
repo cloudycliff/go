@@ -1,0 +1,19 @@
+# Copy to config.toml and edit. Relative paths are resolved against this folder.
+
+[student]
+fox_nickname = "your-fox-nickname"
+age = 10
+
+[katago]
+exe = 'C:\src\go\LizzieYzy Next NVIDIA\app\engines\katago\windows-x64\katago.exe'
+model = 'C:\src\go\LizzieYzy Next NVIDIA\app\weights\default.bin.gz'
+human_model = 'models/b18c384nbt-humanv0.bin.gz'
+config = 'katago/analysis.cfg'
+
+[analysis]
+# Visits per position for the whole-game pass.
+overview_visits = 400
+# Visits for the deep pass on key positions (used from M2 on).
+deep_visits = 3000
+# How many HumanSL levels above the student the "peer" recommendation uses.
+peer_steps = 2
