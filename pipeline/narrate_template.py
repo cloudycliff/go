@@ -24,16 +24,6 @@ def _points(n: int) -> str:
     return f"约 {n} 目" if n >= 1 else "不到 1 目"
 
 
-def candidates_text(candidates: list[dict]) -> str:
-    """'AI 认为可下的点：A（最好）、C（差不到 1 目）、D（差约 2 目）。' — the LizzieYzy-style list."""
-    parts = []
-    for c in candidates:
-        if c.get("diff") is None:
-            continue
-        parts.append(f"{c['label']}（{'最好' if c['diff'] < 0.1 else _points(round(c['diff']))}）")
-    return "AI 认为可下的点：" + "、".join(parts) + "。" if parts else ""
-
-
 def follow_up_text(f: dict) -> str:
     """What each move is worth after the opponent's best answer."""
     where_a = "就在 A 附近" if f.get("replyNearA") else "在别处"
@@ -130,7 +120,7 @@ def describe(f: dict) -> str:
     return texts.get(t, "")
 
 
-def mistake(kind: str, facts: list[dict], recommended: dict, candidates: list[dict] | None = None) -> list[str]:
+def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
     out = ["你下了 ✕。"]
     loss = _f(facts, "loss")
     seg = _f(facts, "segment_loss")
@@ -188,10 +178,6 @@ def mistake(kind: str, facts: list[dict], recommended: dict, candidates: list[di
     if f:
         out.append(f"下 A 的话，可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
     out += [why_text(f) for f in facts if f["type"] in WHY_A]
-    if candidates:
-        text = candidates_text(candidates)
-        if text:
-            out.append(text)
     f = _f(facts, "slip")
     if f:
         who = "多数" if f["share"] == "most" else "很多"
@@ -221,7 +207,7 @@ def good(facts: list[dict]) -> list[str]:
 
 
 def explain(
-    kind: str, category: str, facts: list[dict], recommended: dict, candidates: list[dict] | None = None
+    kind: str, category: str, facts: list[dict], recommended: dict
 ) -> dict:
     if kind == "good":
         return {"template": good(facts), "tip": TIPS["good"]}
@@ -229,7 +215,7 @@ def explain(
     if _f(facts, "slip") and kind == "mistake":
         tip = TIPS["slip"]
     return {
-        "template": mistake(kind, facts, recommended, candidates),
+        "template": mistake(kind, facts, recommended),
         "tip": tip or TIPS.get(category, TIPS["territory"]),
     }
 

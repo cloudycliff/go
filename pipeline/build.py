@@ -204,7 +204,7 @@ def keypoint_data(n: int, seg: keypoints.Segment, game: sgf.Game, raw: dict, p: 
             opponent_loss=by_index[opponent].score_loss if opponent is not None else None,
             probe_a=raw.get("probes", {}).get(f"{i}:{choice.move}"),
         )
-    explain = narrate_template.explain(seg.kind, k.category, k.facts, k.recommended or {}, k.candidates)
+    explain = narrate_template.explain(seg.kind, k.category, k.facts, k.recommended or {})
     return {
         "id": f"k{n}",
         "kind": seg.kind,

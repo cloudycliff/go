@@ -1,4 +1,4 @@
-"""Why A is better: the candidate table, the one-exchange follow-up, and no repeated sentences."""
+"""Why A is better: the candidate table (shown on the page, not in the template), the one-exchange follow-up, and no repeated sentences."""
 
 import unittest
 
@@ -25,10 +25,6 @@ class CandidatesTest(unittest.TestCase):
         self.assertEqual(by_label["C"]["point"], "dp")  # within 2 points, enough visits
         self.assertNotIn("jj", [r["point"] for r in rows])  # too few visits to trust
         self.assertIn("C", {m["label"] for m in k.marks})
-
-    def test_template_sentence(self):
-        text = narrate_template.candidates_text([{"label": "A", "diff": 0.0}, {"label": "✕", "diff": 6.2}])
-        self.assertEqual(text, "AI 认为可下的点：A（最好）、✕（约 6 目）。")
 
 
 class FollowUpTest(unittest.TestCase):
