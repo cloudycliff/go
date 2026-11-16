@@ -120,6 +120,9 @@ SGF 的段位字段（`BR`/`WR`）读取，孩子升级后自动跟随。"高一
 
 ## 4. 关键点挑选（keypoints.py）
 
+> M2 用 3 局真实对局校准后，规则有改动（片段按净损失评级、急所类限 2 个、每阶段上限 3、好棋放宽并用
+> probe 实测），以 [progress.md](progress.md) 的"M2 校准决定"为准。
+
 ### 4.1 候选类型
 
 | 类型 | 条件 | 讲法 |
@@ -250,6 +253,11 @@ LLM 接口做成可替换的适配层，具体模型实现时按官方文档确�
 坐标使用 SGF 格式（`pd`），页面只用它们画图，从不展示给孩子。
 `curve.scoreLead` 统一为孩子视角（正数 = 孩子领先）。
 `keyPoints[].phase/category/severity/kind/scoreLoss` 是给多盘统计用的字段，v1 就要存齐。
+
+M2 实际输出与上面的差异：`game.moves` 是 `[["B","pd"], ...]`（带颜色，兼容让子和虚手）；另有
+`game.setup`（让子摆放）、`game.opponent`、`game.outcome`（`win`/`lose`）；孩子的名字写成"我"。
+关键点多了 `title`、`moves`（片段里孩子的各手）、`deep`（是否有深度分析）；`explain` 为
+`{template: [...], tip, llm: null}`。顶层多了 `smallGame` 和 `summary`。
 
 ### 7.2 site/data/index.json
 

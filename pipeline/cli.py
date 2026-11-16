@@ -9,7 +9,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-from . import analyze, fox, sgf
+from . import analyze, build, fox, sgf
 from .config import Config, load
 from .katago import KataGo, KataGoError
 
@@ -110,8 +110,8 @@ def cmd_analyze(cfg: Config, args: argparse.Namespace) -> int:
         return 1
     raw_path = cfg.raw_dir / f"{game_id}.json.gz"
     if raw_path.exists() and not args.force:
-        _out(f"{raw_path.name} 已经分析过了；要重新分析请加 --force。")
-        return 0
+        _out(f"{raw_path.name} 已有整盘分析（要重新分析请加 --force），直接生成复盘。")
+        return _build(cfg, [game_id], use_engine=True)
 
     rank = game.black_rank if color == "B" else game.white_rank
     _out(
@@ -144,6 +144,54 @@ def cmd_analyze(cfg: Config, args: argparse.Namespace) -> int:
     )
     _out(f"完成，用时 {params['seconds']:.0f} 秒，原始结果已保存到 raw/{raw_path.name}")
     _print_curve(responses, color)
+    return _build(cfg, [game_id], use_engine=True)
+
+
+def _build(cfg: Config, game_ids: list[str], use_engine: bool) -> int:
+    engine = build.LazyEngine(cfg, _out) if use_engine else None
+    try:
+        for game_id in game_ids:
+            _out(f"生成复盘 {game_id}")
+            build.build(cfg, game_id, engine, _out)
+    except KataGoError as e:
+        _out(f"深度分析失败：{e}")
+        return 1
+    finally:
+        if engine:
+            engine.close()
+    _out("本地预览：python -m pipeline serve，然后打开 http://localhost:8000/")
+    return 0
+
+
+def cmd_build(cfg: Config, args: argparse.Namespace) -> int:
+    ids = args.game_ids or sorted(p.name.split(".")[0] for p in cfg.raw_dir.glob("*.json.gz"))
+    if not ids:
+        _out("raw/ 里还没有分析结果。")
+        return 1
+    return _build(cfg, ids, use_engine=not args.no_engine)
+
+
+def cmd_serve(cfg: Config, args: argparse.Namespace) -> int:
+    import functools
+    import http.server
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        # Windows' registry often maps .js to text/plain, which browsers refuse for module scripts.
+        extensions_map = {
+            **http.server.SimpleHTTPRequestHandler.extensions_map,
+            ".js": "text/javascript",
+            ".json": "application/json",
+            ".css": "text/css",
+            ".svg": "image/svg+xml",
+        }
+
+    handler = functools.partial(Handler, directory=str(build.SITE))
+    with http.server.ThreadingHTTPServer((args.bind, args.port), handler) as server:
+        _out(f"本地预览 http://localhost:{args.port}/ （iPad 预览请加 --bind 0.0.0.0 并用本机 IP 访问），Ctrl+C 结束")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
     return 0
 
 
@@ -181,6 +229,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--color", choices=["B", "W"], help="孩子执色（自动判断失败时用）")
     p.add_argument("--force", action="store_true", help="已分析过也重新分析")
     p.set_defaults(func=cmd_analyze)
+
+    p = sub.add_parser("build", help="从已保存的分析生成复盘页面数据（需要时做深度分析）")
+    p.add_argument("game_ids", nargs="*", help="棋局 ID；不写则处理 raw/ 里的全部对局")
+    p.add_argument("--no-engine", action="store_true", help="不启动 KataGo，缺深度分析就用整盘数据")
+    p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser("serve", help="在本机预览 site/")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--bind", default="127.0.0.1", help="用 0.0.0.0 让同一局域网的 iPad 访问")
+    p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("show", help="查看已保存的分析")
     p.add_argument("game_id")

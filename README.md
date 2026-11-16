@@ -17,8 +17,10 @@
 
 ```
 python -m pipeline list              # 最近的 19 路对局
-python -m pipeline analyze 3         # 按序号或棋局 ID 分析，结果写入 raw/
+python -m pipeline analyze 3         # 按序号或棋局 ID：整盘分析 → 深度分析 → 生成 site/data
 python -m pipeline analyze --sgf a.sgf --color B
+python -m pipeline build             # 改了算法后，从 raw/ 重新生成全部页面数据（--no-engine 不跑 KataGo）
+python -m pipeline serve             # 本地预览 http://localhost:8000/ （iPad 预览加 --bind 0.0.0.0）
 python -m pipeline show <棋局ID>
 python -m unittest discover -s tests
 ```
