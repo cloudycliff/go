@@ -1,6 +1,6 @@
 """Facts about one key point, all computed from KataGo data and replays on the board.
 
-Facts are the only material the explanation may use (template or LLM). Points and groups that
+Facts are the only material the explanation may use. Points and groups that
 facts talk about become board marks (A/B points, ▲/△ groups); text refers to marks, never to
 coordinates.
 """

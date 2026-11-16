@@ -205,17 +205,12 @@ def _analyze_one(cfg: Config, game_id: str, text: str, color: str | None, force:
     return _build(cfg, [game_id], use_engine=True)
 
 
-def _build(cfg: Config, game_ids: list[str], use_engine: bool, use_llm: bool = True) -> int:
-    from . import narrate_llm
-
+def _build(cfg: Config, game_ids: list[str], use_engine: bool) -> int:
     engine = build.LazyEngine(cfg, _out) if use_engine else None
-    llm = narrate_llm.Client.from_env(cfg.llm) if use_llm else None
-    if use_llm and llm is None and cfg.llm.enabled:
-        _out(f"没有找到环境变量 {cfg.llm.api_key_env}，跳过 AI 老师讲解（只用模板讲解和已缓存的讲解）。")
     try:
         for game_id in game_ids:
             _out(f"生成复盘 {game_id}")
-            build.build(cfg, game_id, engine, _out, llm)
+            build.build(cfg, game_id, engine, _out)
     except KataGoError as e:
         _out(f"深度分析失败：{e}")
         return 1
@@ -231,7 +226,7 @@ def cmd_build(cfg: Config, args: argparse.Namespace) -> int:
     if not ids:
         _out("raw/ 里还没有分析结果。")
         return 1
-    return _build(cfg, ids, use_engine=not args.no_engine, use_llm=not args.no_llm)
+    return _build(cfg, ids, use_engine=not args.no_engine)
 
 
 def cmd_serve(cfg: Config, args: argparse.Namespace) -> int:
@@ -326,7 +321,6 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("build", help="从已保存的分析生成复盘页面数据（需要时做深度分析）")
     p.add_argument("game_ids", nargs="*", help="棋局 ID；不写则处理 raw/ 里的全部对局")
     p.add_argument("--no-engine", action="store_true", help="不启动 KataGo，缺深度分析就用整盘数据")
-    p.add_argument("--no-llm", action="store_true", help="不请求 AI 老师讲解（已缓存的照样使用）")
     p.set_defaults(func=cmd_build)
 
     p = sub.add_parser("serve", help="在本机预览 site/")

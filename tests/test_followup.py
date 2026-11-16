@@ -1,8 +1,8 @@
-"""Why A is better: the candidate table (shown on the page, not in the template), the one-exchange follow-up, and no repeated sentences."""
+"""Why A is better: the candidate table, the one-exchange follow-up, and template sentences that leave the table's numbers to it."""
 
 import unittest
 
-from pipeline import facts, narrate_template, verify
+from pipeline import facts, narrate_template
 from tests.test_review import resp
 
 
@@ -68,18 +68,23 @@ class FollowUpTest(unittest.TestCase):
         self.assertEqual(k.facts, [])
 
 
-class DuplicateTest(unittest.TestCase):
-    MARKS = [{"label": "A", "type": "point", "point": "qf", "role": "recommended"}]
-    FACTS = [{"id": "f1", "type": "loss", "scoreLoss": 7}, {"id": "f2", "type": "recommended", "mark": "A"}]
+class TableDuplicationTest(unittest.TestCase):
+    FACTS = [{"type": "loss", "scoreLoss": 7, "severity": "mistake"},
+             {"type": "peer_choice", "sameAsAi": False, "diff": 1.4}]
+    REC = {"move": "qf", "source": "peer"}
 
-    def check(self, *texts):
-        o = {"sentences": [{"text": t, "refs": ["f1", "f2"]} for t in texts],
-             "tip": {"text": "下之前先看看A。", "refs": ["f2"]}}
-        return verify.verify(o, self.FACTS, self.MARKS)
+    def test_without_table_numbers_are_in_the_text(self):
+        text = "".join(narrate_template.mistake("mistake", self.FACTS, self.REC, table=False))
+        self.assertIn("亏了约 7 目", text)
+        self.assertIn("只差约 1 目", text)
 
-    def test_repeated_sentence_is_rejected(self):
-        problems = self.check("这手亏了约7目。", "更好的是A。", "这一手亏了约7目。")
-        self.assertTrue(any("重复" in p for p in problems), problems)
+    def test_with_table_numbers_are_left_to_it(self):
+        lines = narrate_template.mistake("mistake", self.FACTS, self.REC, table=True)
+        text = "".join(lines)
+        self.assertNotIn("目", text)
+        self.assertNotIn("你下了 ✕。", lines)
+        self.assertIn("问题手", text)
 
-    def test_different_sentences_pass(self):
-        self.assertEqual(self.check("这手亏了约7目。", "更好的是A。"), [])
+    def test_table_shown_matches_the_page(self):
+        self.assertFalse(narrate_template.table_shown([{"label": "A", "diff": 0.0}, {"label": "✕", "diff": None}]))
+        self.assertTrue(narrate_template.table_shown([{"label": "A", "diff": 0.0}, {"label": "✕", "diff": 5.0}]))

@@ -263,24 +263,6 @@ class WhyFactsTest(unittest.TestCase):
         self.assertEqual(labels, ["▲", "■", None])
         self.assertIsNone(k.group_fact("refute_capture", {(9, 0), (9, 1)}, True, count=2))
 
-    def test_why_sentences_pass_the_verifier(self):
-        from pipeline import verify
-
-        why = [
-            {"id": "f1", "type": "far_away", "playedMark": "✕", "playedRegion": "左上", "recRegion": "右下", "mark": "A"},
-            {"id": "f2", "type": "opponent_wants", "mark": "A", "exact": True},
-            {"id": "f3", "type": "refute_squeeze", "mark": "▲", "liberties": 2, "count": 3},
-            {"id": "f4", "type": "rec_connects", "mark": "▲", "mark2": "■", "moveMark": "A"},
-            {"id": "f5", "type": "rec_atari", "mark": "△", "moveMark": "A", "liberties": 1},
-            {"id": "f6", "type": "common_far_away", "playedMark": "B", "playedRegion": "左上", "recRegion": "右下",
-             "mark": "A"},
-            {"id": "f7", "type": "common_opponent_wants", "mark": "A", "exact": False, "commonMark": "B"},
-        ]
-        by_id = {f["id"]: f for f in why}
-        for f in why:
-            text = narrate_template.why_text(f)
-            self.assertEqual(verify.check_sentence(text, [f["id"]], by_id, {"✕", "A", "B", "▲", "■", "△"}, text), [])
-
 
 class SummaryTest(unittest.TestCase):
     def test_summary(self):

@@ -127,8 +127,6 @@ details.answer[open] > summary { background: var(--bg); color: var(--muted); bor
 .cands th, .cands td { padding: 3px 10px 3px 0; text-align: left; }
 .cands th { color: var(--muted); font-weight: normal; }
 .cands tr.played td { color: var(--bad, #c0392b); }
-.llm { border-top: 1px dashed var(--line); margin-top: 12px; }
-.badge-ref { font-size: 0.75rem; font-weight: 400; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--muted); color: var(--muted); }
 .pill { display: inline-block; min-width: 1.4em; text-align: center; font-weight: 700; padding: 0 4px; border-radius: 6px; line-height: 1.35; }
 .pill.played { color: var(--red); }
 .pill.recommended { color: #fff; background: var(--green); }

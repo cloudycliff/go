@@ -18,15 +18,3 @@ deep_visits = 3000
 # How many HumanSL levels above the student the "peer" recommendation uses.
 peer_steps = 2
 
-[llm]
-# "AI 老师说" explanations. Any OpenAI-compatible chat API; DeepSeek by default.
-# The API key is NEVER written here: set it as an environment variable named by api_key_env,
-# e.g. in PowerShell:  [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "<key>", "User")
-provider = "deepseek"
-base_url = "https://api.deepseek.com"
-model = "deepseek-flash"
-api_key_env = "DEEPSEEK_API_KEY"
-enabled = true
-# DeepSeek thinks (effort high) by default; retelling facts does not need it, and the thinking
-# can use up the output budget. "enabled" / "disabled" / "" for the provider's default.
-thinking = "disabled"

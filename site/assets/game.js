@@ -136,11 +136,7 @@ function keyPointCard(game, k) {
       h("h4", {}, "发生了什么"),
       h("ul", { class: "facts" }, k.explain.template.map((s) => h("li", {}, richText(s)))),
       candidateTable(k.candidates),
-      k.explain.tip ? h("p", { class: "tip" }, h("b", {}, "下次先看："), k.explain.tip) : null,
-      k.explain.llm?.verified ? h("div", { class: "llm" },
-        h("h4", {}, "AI 老师说 ", h("span", { class: "badge-ref" }, "仅供参考")),
-        k.explain.llm.sentences.map((s) => h("p", {}, richText(s.text))),
-        k.explain.llm.tip ? h("p", { class: "tip" }, richText(k.explain.llm.tip.text)) : null) : null));
+      k.explain.tip ? h("p", { class: "tip" }, h("b", {}, "下次先看："), k.explain.tip) : null));
 
   details.addEventListener("toggle", () => {
     state.mode = details.open ? "answer" : "question";

@@ -1,4 +1,8 @@
-"""Template explanation: always generated, and the fallback when the LLM's text fails checks."""
+"""The explanation under "发生了什么", built from the facts.
+
+The candidate table on the page already lists each point with how much it costs, so when it is
+shown the sentences leave those numbers to it and say only what the table cannot.
+"""
 
 from __future__ import annotations
 
@@ -41,7 +45,7 @@ def near_group_text(f: dict) -> str:
 
 
 def why_text(f: dict) -> str:
-    """Sentences for the "why" facts, shared by the template and the LLM's fact meanings."""
+    """Sentences for the "why" facts."""
     t = f["type"]
     if t == "far_away":
         return f"你下在了{f['playedRegion']}，可这时{f['recRegion']}的 A 更要紧。"
@@ -73,60 +77,21 @@ WHY_A = ("rec_connects", "rec_cuts", "rec_atari", "rec_presses", "common_far_awa
          "follow_up")
 
 
-PHASE_ZH = {"opening": "布局", "middle": "中盘", "endgame": "官子"}
-CATEGORY_LONG = {"life_death": "死活/对杀", "big_point": "大场", "territory": "实地", "endgame": "官子"}
+def table_shown(candidates: list[dict] | None) -> bool:
+    """Mirrors candidateTable() in game.js: the table needs two rated rows."""
+    return sum(1 for c in candidates or [] if c.get("label") and c.get("diff") is not None) >= 2
 
 
-def describe(f: dict) -> str:
-    """What one fact means, in plain words; the LLM gets this next to the fact's fields."""
-    t = f["type"]
-    grade = SEVERITY_ZH.get(f.get("severity") or "", "")
-    texts = {
-        "played": "✕ 是你实战下的位置。",
-        "recommended": {"peer": "A 是推荐的下法，比你强一点的人多数会下这里。",
-                        "urgent": "A 是推荐的下法，也是这一段一直没下的急所。"}.get(f.get("source"), "A 是推荐的下法。"),
-        "loss": f"这手亏了{_points(f.get('scoreLoss', 0))}" + (f"，等级是{grade}。" if grade else "。"),
-        "segment_loss": f"这一片前后 {f.get('moves')} 手棋，一共亏了约 {f.get('scoreLoss')} 目" + (f"，等级是{grade}。" if grade else "。"),
-        "opponent_mistake": f"对方上一手亏了{_points(f.get('scoreLoss', 0))}，你这手没有抓住机会。",
-        "missed_urgent": f"A 是急所，这一段你有 {f.get('turns')} 次机会下在那里，都没有下。" + ("对方也没有发现。" if f.get("opponentMissed") else ""),
-        "atari_ignored": f"{f.get('mark')} 已经被叫吃（只剩一口气），你这手没有逃。",
-        "self_atari": f"你这手让 {f.get('mark')} 只剩一口气。",
-        "refute_capture": f"实战后，对方接下来可以吃掉 {f.get('mark')} 这 {f.get('count')} 颗子。",
-        "best_save": f"下 A 可以救出 {f.get('mark')} 这 {f.get('count')} 颗子。",
-        "best_capture": f"下 {f.get('moveMark', 'A')} 可以吃掉 {f.get('mark')} 这 {f.get('count')} 颗子。",
-        "group_dies": f"AI 认为你这手以后，{f.get('mark')} 这块棋（{f.get('count')} 颗子）很可能被吃掉。",
-        "group_lives": f"对方 {f.get('mark')} 这块棋本来可以吃掉，你这手以后它很可能活了。",
-        "area_flip": f"{f.get('region')}大约 {f.get('count')} 个点的地，变成了对方的。",
-        "peer_choice": ("比你强一点的人多数也会下 A。" if f.get("sameAsAi")
-                        else f"比你强一点的人多数会下 A；AI 最喜欢的是 B，两者只差{_points(f.get('diff', 0))}。"),
-        "slip": "和你水平差不多的人，" + ("多数" if f.get("share") == "most" else "很多") + "会下 A，这次是一时疏忽。",
-        "rec_near_group": near_group_text(f) if "pointMark" in f else "",
-        "good_move": "你下了 A，这是 AI 最喜欢的一手。",
-        "common_move": f"和你水平差不多的人多数会下 B，那样要亏{_points(f.get('scoreLoss', 0))}。",
-        "common_capture": f"下 B 的话，对方可以吃掉 {f.get('mark')} 这 {f.get('count')} 颗子。",
-        "common_group_dies": f"下 B 的话，{f.get('mark')} 这块棋就危险了。",
-        "phase": f"第 {f.get('move')} 手，{PHASE_ZH.get(f.get('phase'), '')}阶段，类别：{CATEGORY_LONG.get(f.get('category'), '其他')}。",
-    }
-    if t == "follow_up":
-        where_a = "就在 A 附近" if f.get("replyNearA") else "在别处"
-        return (
-            f"下 A 以后，对方最强的一手{where_a}，这时孩子"
-            f"{'领先' if f['leadAfterA'] >= 0 else '落后'}约 {abs(round(f['leadAfterA']))} 目；"
-            f"实战 ✕ 后对方应一手，孩子{'领先' if f['leadAfterPlayed'] >= 0 else '落后'}"
-            f"约 {abs(round(f['leadAfterPlayed']))} 目，两者相差约 {abs(round(f['diff']))} 目。"
-        )
-    if t in WHAT_HAPPENED or t in WHY_A:
-        return why_text(f)
-    return texts.get(t, "")
-
-
-def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
-    out = ["你下了 ✕。"]
+def mistake(kind: str, facts: list[dict], recommended: dict, table: bool = False) -> list[str]:
+    out = [] if table else ["你下了 ✕。"]
     loss = _f(facts, "loss")
     seg = _f(facts, "segment_loss")
     if loss:
         grade = "" if seg else SEVERITY_ZH.get(loss.get("severity") or "", "")
-        out.append(f"这手亏了{_points(loss['scoreLoss'])}" + (f"，算是{grade}。" if grade else "。"))
+        if not table:
+            out.append(f"这手亏了{_points(loss['scoreLoss'])}" + (f"，算是{grade}。" if grade else "。"))
+        elif grade:
+            out.append(f"✕ 这手算是{grade}。")
     if seg:
         grade = SEVERITY_ZH.get(seg.get("severity") or "", "")
         out.append(
@@ -163,11 +128,16 @@ def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
 
     peer = _f(facts, "peer_choice")
     if recommended.get("source") == "peer" and peer:
-        out.append(f"更好的是 A：比你强一点的人多数会下这里，和 AI 最喜欢的 B 只差{_points(round(peer['diff']))}。")
+        if table:
+            out.append("A 是比你强一点的人多数会下的地方，比 AI 最喜欢的 B 好懂。")
+        else:
+            out.append(f"更好的是 A：比你强一点的人多数会下这里，和 AI 最喜欢的 B 只差{_points(round(peer['diff']))}。")
     elif recommended.get("source") == "urgent":
         out.append("更好的是先下 A。")
-    else:
+    elif not table:
         out.append("更好的是 A。" + ("比你强一点的人也会这样下。" if peer and peer.get("sameAsAi") else ""))
+    elif peer and peer.get("sameAsAi"):
+        out.append("比你强一点的人也会下 A。")
     f = _f(facts, "best_save")
     if f:
         out.append(f"下 A 可以救出 {f['mark']} 这 {f['count']} 颗子。")
@@ -207,7 +177,7 @@ def good(facts: list[dict]) -> list[str]:
 
 
 def explain(
-    kind: str, category: str, facts: list[dict], recommended: dict
+    kind: str, category: str, facts: list[dict], recommended: dict, candidates: list[dict] | None = None
 ) -> dict:
     if kind == "good":
         return {"template": good(facts), "tip": TIPS["good"]}
@@ -215,7 +185,7 @@ def explain(
     if _f(facts, "slip") and kind == "mistake":
         tip = TIPS["slip"]
     return {
-        "template": mistake(kind, facts, recommended),
+        "template": mistake(kind, facts, recommended, table_shown(candidates)),
         "tip": tip or TIPS.get(category, TIPS["territory"]),
     }
 
