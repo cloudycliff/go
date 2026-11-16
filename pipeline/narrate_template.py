@@ -10,7 +10,7 @@ TIPS = {
     "life_death": "下之前先数一数双方棋子的气，看看谁的棋更危险。",
     "big_point": "布局时先抢最大的空地方，再考虑小地方。",
     "territory": "动手之前先比一比：哪里最大？哪块棋需要补？",
-    "endgame": "收官时先找最大的地方，能先手的先下。",
+    "endgame": "收官时先找最大的地方。",
     "good": "这种好棋多看几遍，记住它的样子。",
     "slip": "落子前多停一秒：先看看有没有更急、更大的地方。",
 }
@@ -22,6 +22,48 @@ def _f(facts: list[dict], type_: str) -> dict | None:
 
 def _points(n: int) -> str:
     return f"约 {n} 目" if n >= 1 else "不到 1 目"
+
+
+def near_group_text(f: dict) -> str:
+    whose = "你的" if f["owner"] == "student" else "对方的"
+    return f"{f['pointMark']} 紧挨着{whose} {f['mark']}，{f['mark']} 只剩 {f['liberties']} 口气。"
+
+
+PHASE_ZH = {"opening": "布局", "middle": "中盘", "endgame": "官子"}
+CATEGORY_LONG = {"life_death": "死活/对杀", "big_point": "大场", "territory": "实地", "endgame": "官子"}
+
+
+def describe(f: dict) -> str:
+    """What one fact means, in plain words; the LLM gets this next to the fact's fields."""
+    t = f["type"]
+    grade = SEVERITY_ZH.get(f.get("severity") or "", "")
+    texts = {
+        "played": "✕ 是你实战下的位置。",
+        "recommended": {"peer": "A 是推荐的下法，比你强一点的人多数会下这里。",
+                        "urgent": "A 是推荐的下法，也是这一段一直没下的急所。"}.get(f.get("source"), "A 是推荐的下法。"),
+        "loss": f"这手亏了{_points(f.get('scoreLoss', 0))}" + (f"，等级是{grade}。" if grade else "。"),
+        "segment_loss": f"这一片前后 {f.get('moves')} 手棋，一共亏了约 {f.get('scoreLoss')} 目" + (f"，等级是{grade}。" if grade else "。"),
+        "opponent_mistake": f"对方上一手亏了{_points(f.get('scoreLoss', 0))}，你这手没有抓住机会。",
+        "missed_urgent": f"A 是急所，这一段你有 {f.get('turns')} 次机会下在那里，都没有下。" + ("对方也没有发现。" if f.get("opponentMissed") else ""),
+        "atari_ignored": f"{f.get('mark')} 已经被叫吃（只剩一口气），你这手没有逃。",
+        "self_atari": f"你这手让 {f.get('mark')} 只剩一口气。",
+        "refute_capture": f"实战后，对方接下来可以吃掉 {f.get('mark')} 这 {f.get('count')} 颗子。",
+        "best_save": f"下 A 可以救出 {f.get('mark')} 这 {f.get('count')} 颗子。",
+        "best_capture": f"下 {f.get('moveMark', 'A')} 可以吃掉 {f.get('mark')} 这 {f.get('count')} 颗子。",
+        "group_dies": f"AI 认为你这手以后，{f.get('mark')} 这块棋（{f.get('count')} 颗子）很可能被吃掉。",
+        "group_lives": f"对方 {f.get('mark')} 这块棋本来可以吃掉，你这手以后它很可能活了。",
+        "area_flip": f"{f.get('region')}大约 {f.get('count')} 个点的地，变成了对方的。",
+        "peer_choice": ("比你强一点的人多数也会下 A。" if f.get("sameAsAi")
+                        else f"比你强一点的人多数会下 A；AI 最喜欢的是 B，两者只差{_points(f.get('diff', 0))}。"),
+        "slip": "和你水平差不多的人，" + ("多数" if f.get("share") == "most" else "很多") + "会下 A，这次是一时疏忽。",
+        "rec_near_group": near_group_text(f) if "pointMark" in f else "",
+        "good_move": "你下了 A，这是 AI 最喜欢的一手。",
+        "common_move": f"和你水平差不多的人多数会下 B，那样要亏{_points(f.get('scoreLoss', 0))}。",
+        "common_capture": f"下 B 的话，对方可以吃掉 {f.get('mark')} 这 {f.get('count')} 颗子。",
+        "common_group_dies": f"下 B 的话，{f.get('mark')} 这块棋就危险了。",
+        "phase": f"第 {f.get('move')} 手，{PHASE_ZH.get(f.get('phase'), '')}阶段，类别：{CATEGORY_LONG.get(f.get('category'), '其他')}。",
+    }
+    return texts.get(t, "")
 
 
 def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
@@ -74,6 +116,9 @@ def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
     f = _f(facts, "best_save")
     if f:
         out.append(f"下 A 可以救出 {f['mark']} 这 {f['count']} 颗子。")
+    f = _f(facts, "rec_near_group")
+    if f:
+        out.append(near_group_text(f))
     f = _f(facts, "best_capture")
     if f:
         out.append(f"下 A 的话，可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
@@ -98,6 +143,9 @@ def good(facts: list[dict]) -> list[str]:
     f = _f(facts, "best_capture")
     if f:
         out.append(f"下 A 以后，可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
+    f = _f(facts, "rec_near_group")
+    if f:
+        out.append(near_group_text(f))
     return out
 
 

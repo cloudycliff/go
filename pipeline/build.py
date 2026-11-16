@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from . import analyze, board, evaluate, facts, keypoints, narrate_template, sgf
+from . import analyze, board, evaluate, facts, keypoints, narrate_llm, narrate_template, sgf
 from .config import ROOT, Config
 from .katago import KataGo
 
@@ -294,12 +294,46 @@ def write_site(data: dict, site: Path = SITE) -> Path:
     return path
 
 
-def build(cfg: Config, game_id: str, engine: LazyEngine | None, log=print) -> dict:
+def add_llm(cfg: Config, game: sgf.Game, raw: dict, data: dict, client, log=print) -> bool:
+    """Fills keyPoints[].explain.llm from the cache, asking the LLM for missing ones.
+
+    Returns True when the cache changed. Only verified explanations reach the page.
+    """
+    cache = raw.setdefault("llm", {})
+    rank = analyze.student_rank(game, raw["studentColor"]).label_zh()
+    changed = False
+    for k in data["keyPoints"]:
+        key = narrate_llm.cache_key(cfg.llm, narrate_llm.messages(k, cfg.age, rank))
+        result = cache.get(key)
+        if result is None and client is not None:
+            try:
+                result = narrate_llm.explain(client, k, cfg.age, rank)
+            except narrate_llm.LLMError as e:
+                log(f"  LLM 讲解失败（第 {k['move']} 手）：{e}")
+                continue
+            cache[key] = result
+            changed = True
+            state = "通过校验" if result["verified"] else "两次都没通过校验，用模板讲解"
+            log(f"  AI 老师讲解第 {k['move']} 手：{state}")
+        if result and result.get("verified"):
+            k["explain"]["llm"] = {
+                "sentences": result["sentences"],
+                "tip": result["tip"],
+                "model": result["model"],
+                "verified": True,
+            }
+    return changed
+
+
+def build(cfg: Config, game_id: str, engine: LazyEngine | None, log=print, llm=None) -> dict:
     raw_path = cfg.raw_dir / f"{game_id}.json.gz"
     raw = analyze.load_raw(raw_path)
     game = sgf.parse(raw["sgf"])
     p = ensure_deep(cfg, game, raw, raw_path, engine, log)
     data = game_data(game_id, game, raw, p)
+    if add_llm(cfg, game, raw, data, llm, log):
+        analyze.write_raw(raw_path, raw)
     path = write_site(data)
-    log(f"已生成 {path.relative_to(ROOT)}：{len(data['keyPoints'])} 个关键点。{data['summary']}")
+    llm_count = sum(1 for k in data["keyPoints"] if k["explain"]["llm"])
+    log(f"已生成 {path.relative_to(ROOT)}：{len(data['keyPoints'])} 个关键点（AI 讲解 {llm_count} 个）。{data['summary']}")
     return data

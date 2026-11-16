@@ -218,6 +218,9 @@ SGF 的段位字段（`BR`/`WR`）读取，孩子升级后自动跟随。"高一
 LLM 接口做成可替换的适配层，具体模型实现时按官方文档确定。用量很小：每局约 5 次调用，每次输入
 约 1～2K token、输出约 300 token。
 
+> M3 已定：DeepSeek `deepseek-flash`（OpenAI 兼容接口），关闭思考模式。校验规则在 6.3 的基础上增加了
+> "不推测后面的棋""不猜孩子的心态"，并同时检查中文数字。详见 [progress.md](progress.md) 的 M3 部分。
+
 ## 7. 数据格式
 
 ### 7.1 site/data/games/<chessid>.json

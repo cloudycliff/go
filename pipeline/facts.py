@@ -24,6 +24,7 @@ AREA_MIN = 5  # empty points before an area change is worth saying
 PEER_CLOSE = 1.0  # points: recommend the stronger players' move when it is this close to the AI's
 PEER_MIN_VISITS = 16
 MIN_CAPTURE = 2  # single stones taken somewhere in a long variation are mostly noise
+NEAR_LIBS = 3  # "A touches a group with only N liberties" is worth saying up to this many
 # Players at the student's own level play the recommended move this often: the mistake was a slip.
 SLIP_MANY = 0.25
 SLIP_MOST = 0.5
@@ -166,6 +167,34 @@ def _atari_groups(board: Board, color: str) -> list[set]:
     return [stones for c, stones, libs in board.groups(color) if len(libs) == 1]
 
 
+def near_group(k: KeyFacts, board: Board, point: str, student: str) -> None:
+    """Why A matters, when the board shows it: A touches a group (2+ stones) short of liberties.
+
+    Adds `rec_near_group` for the touching group with the fewest liberties (at most NEAR_LIBS).
+    A group that A itself fills the last liberty of is a capture and is said elsewhere.
+    """
+    xy = sgf_to_xy(point, board.size) if point else None
+    if xy is None or board.get(xy) is not None:
+        return
+    best = None
+    for n in board.neighbors(xy):
+        if board.get(n) is None:
+            continue
+        stones, libs = board.group(n)
+        if len(stones) < 2 or len(libs) > NEAR_LIBS:
+            continue
+        if best is None or len(libs) < len(best[1]):
+            best = (stones, libs, board.get(n))
+    if best is None:
+        return
+    stones, libs, color = best
+    label = k.mark_group(stones, color == student)
+    k.add(
+        "rec_near_group", mark=label, pointMark="A", owner="student" if color == student else "opponent",
+        liberties=len(libs), count=len(stones),
+    )
+
+
 def mistake_facts(
     *,
     kind: str,
@@ -214,6 +243,8 @@ def mistake_facts(
         k.mark_point("B", best, "ai_best")
     k.recommended = {"move": rec, "source": source}
 
+    k.add("played", mark="✕")
+    k.add("recommended", mark="A", source=source)
     k.add("loss", scoreLoss=round(move_loss), severity=severity)
     if segment_moves > 1 and round(segment_loss) > round(move_loss):
         k.add("segment_loss", moves=segment_moves, scoreLoss=round(segment_loss), severity=segment_severity)
@@ -283,20 +314,21 @@ def mistake_facts(
                 k.marks.append({"label": "", "type": "area", "points": sorted(xy_to_sgf(p) for p in area)})
                 k.add("area_flip", count=count, region=name)
         k.category = category(after_board, own_before, own_after, number, move_loss, size)
+    near_group(k, before_board, rec, student)
     if any(k.has(t) for t in ("group_dies", "group_lives", "refute_capture", "best_capture", "atari_ignored")):
         k.category = "life_death"
 
     if peer and peer_diff is not None:
         if peer == rec:
             if source == "peer":
-                k.add("peer_choice", mark="A", sameAsAi=False, diff=round(peer_diff, 1), aiMark="B")
+                k.add("peer_choice", mark="A", sameAsAi=False, diff=round(peer_diff), aiMark="B")
             else:
                 k.add("peer_choice", mark="A", sameAsAi=True)
     # How often players at the student's own level find A: often means this was a slip.
     level = policy_at(level_policy, rec, size) if level_policy else 0.0
     if level >= SLIP_MANY and rec != played:
         k.add("slip", mark="A", share="most" if level >= SLIP_MOST else "many")
-    k.add("phase", phase=phase(number), category=k.category)
+    k.add("phase", phase=phase(number), category=k.category, move=number)
     k.title = title(kind, k)
     return k
 
@@ -332,6 +364,7 @@ def good_facts(
         common_moves += pv_moves(opponent, probe["moveInfos"][0].get("pv", []), size)
     common_board, common_lost = replay(before_board, common_moves)
     k.lines.append({"name": "常见下法", "moves": [p for _, p in common_moves]})
+    near_group(k, before_board, played, student)
 
     taken = {p for p in good_lost[opponent] if before_board.get(p) == opponent}
     if len(taken) >= MIN_CAPTURE:
@@ -351,7 +384,7 @@ def good_facts(
                 label = k.mark_group(shown, True)
                 k.add("common_group_dies", mark=label, count=len(shown), moveMark="B")
         k.category = category(after_common, before["ownership"], probe["ownership"], number, common_loss, size)
-    k.add("phase", phase=phase(number), category=k.category)
+    k.add("phase", phase=phase(number), category=k.category, move=number)
     k.title = "这手下得好"
     return k
 
