@@ -25,6 +25,7 @@ CN_DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 
 CAPTURE_FACTS = {
     "refute_capture", "best_capture", "best_save", "atari_ignored", "self_atari",
     "group_dies", "group_lives", "common_capture", "common_group_dies", "rec_near_group",
+    "rec_atari", "rec_presses", "refute_squeeze",
 }  # fmt: skip
 # "死/活/吃" are claims about stones; they need a fact that is about stones.
 STONE_WORDS = re.compile(r"[死活吃]")
@@ -41,7 +42,7 @@ BANNED = [
     # Claims about what happened later in the game, or about the child's state of mind: no fact
     # holds them (found in real DeepSeek output that passed every other check).
     (re.compile(r"来得及|还有机会|还能补|补上|以后还能|后来"), "推测后面的棋"),
-    (re.compile(r"太急|有点急|着急|急躁|粗心|马虎|大意|紧张"), "猜测心态"),
+    (re.compile(r"太急|有点急|着急|急躁|粗心|马虎|大意|紧张|算得|算清|看得很远|眼光"), "猜测心态"),
 ]
 
 
@@ -78,7 +79,7 @@ def _marks_in(value) -> set[str]:
             out.add(value)
     elif isinstance(value, dict):
         for k, v in value.items():
-            if k in ("mark", "moveMark", "aiMark", "commonMark") or isinstance(v, (dict, list)):
+            if k in ("mark", "mark2", "moveMark", "aiMark", "commonMark", "pointMark", "playedMark") or isinstance(v, (dict, list)):
                 out |= _marks_in(v)
     elif isinstance(value, list):
         for v in value:

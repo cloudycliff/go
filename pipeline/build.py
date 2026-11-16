@@ -305,6 +305,9 @@ def add_llm(cfg: Config, game: sgf.Game, raw: dict, data: dict, client, log=prin
     for k in data["keyPoints"]:
         key = narrate_llm.cache_key(cfg.llm, narrate_llm.messages(k, cfg.age, rank))
         result = cache.get(key)
+        if result and result.get("verified") and narrate_llm.recheck(result, k):
+            # Cached under older rules and no longer passes: ask again (or fall back to the template).
+            result = None
         if result is None and client is not None:
             try:
                 result = narrate_llm.explain(client, k, cfg.age, rank)

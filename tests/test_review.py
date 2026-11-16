@@ -193,6 +193,95 @@ class FactsTest(unittest.TestCase):
         self.assertFalse(k.has("slip"))
 
 
+def _board(*stones):
+    b = board.Board(19)
+    for color, p in stones:
+        b.play_sgf(color, p)
+    return b
+
+
+class WhyFactsTest(unittest.TestCase):
+    def test_connects_two_student_groups(self):
+        # Black dd-de and dg-dh: "df" touches both; "ef" touches neither.
+        b = _board(("B", "dd"), ("B", "de"), ("B", "dg"), ("B", "dh"))
+        k = facts.KeyFacts()
+        facts.shape_facts(k, b, "ef", "B")
+        self.assertFalse(k.has("rec_connects"))
+        facts.shape_facts(k, b, "df", "B")
+        f = next(f for f in k.facts if f["type"] == "rec_connects")
+        self.assertEqual({f["mark"], f["mark2"]}, {"▲", "■"})
+
+    def test_cuts_two_opponent_groups(self):
+        # White bf-cf and ef-ff on one line: "df" sits between them.
+        b = _board(("W", "bf"), ("W", "cf"), ("W", "ef"), ("W", "ff"))
+        k = facts.KeyFacts()
+        facts.shape_facts(k, b, "dg", "B")
+        self.assertFalse(k.has("rec_cuts"))
+        facts.shape_facts(k, b, "df", "B")
+        f = next(f for f in k.facts if f["type"] == "rec_cuts")
+        self.assertEqual({f["mark"], f["mark2"]}, {"△", "□"})
+
+    def test_atari_and_press(self):
+        # White pair on the edge with three liberties; Black at "ca" leaves it in atari? aa-ba: libs ab, bb, ca.
+        b = _board(("W", "aa"), ("W", "ba"), ("B", "ab"))
+        k = facts.KeyFacts()
+        facts.shape_facts(k, b, "ca", "B")
+        f = next(f for f in k.facts if f["type"] in ("rec_atari", "rec_presses"))
+        self.assertEqual(f["type"], "rec_atari")
+        self.assertEqual(f["liberties"], 1)
+        b = _board(("W", "aa"), ("W", "ba"))
+        k = facts.KeyFacts()
+        facts.shape_facts(k, b, "ca", "B")
+        f = next(f for f in k.facts if f["type"] in ("rec_atari", "rec_presses"))
+        self.assertEqual((f["type"], f["liberties"]), ("rec_presses", 2))
+
+    def test_refute_squeeze(self):
+        before = _board(("B", "aa"), ("B", "ba"), ("W", "ab"))
+        after = before.copy()
+        after.play_sgf("B", "pp")  # the mistake: elsewhere
+        k = facts.KeyFacts()
+        facts.refute_squeeze(k, before, after, "bb", "B")  # White's reply leaves aa-ba with 1 liberty
+        f = next(f for f in k.facts if f["type"] == "refute_squeeze")
+        self.assertEqual(f["liberties"], 1)
+        self.assertEqual(f["count"], 2)
+
+    def test_far_away_and_opponent_wants(self):
+        k = facts.KeyFacts()
+        after = resp([("pq", 0.0, 400, [])], 0.0, current="W")
+        facts.where_facts(k, after, "dd", "pp", 19)
+        far = next(f for f in k.facts if f["type"] == "far_away")
+        self.assertEqual((far["playedRegion"], far["recRegion"]), ("左上", "右下"))
+        wants = next(f for f in k.facts if f["type"] == "opponent_wants")
+        self.assertFalse(wants["exact"])
+        k = facts.KeyFacts()
+        facts.where_facts(k, after, "pk", "pp", 19)
+        self.assertFalse(k.has("far_away"))
+
+    def test_marks_never_repeat(self):
+        k = facts.KeyFacts()
+        labels = [k.mark_group({(i, 0), (i, 1)}, True) for i in (0, 3, 6)]
+        self.assertEqual(labels, ["▲", "■", None])
+        self.assertIsNone(k.group_fact("refute_capture", {(9, 0), (9, 1)}, True, count=2))
+
+    def test_why_sentences_pass_the_verifier(self):
+        from pipeline import verify
+
+        why = [
+            {"id": "f1", "type": "far_away", "playedMark": "✕", "playedRegion": "左上", "recRegion": "右下", "mark": "A"},
+            {"id": "f2", "type": "opponent_wants", "mark": "A", "exact": True},
+            {"id": "f3", "type": "refute_squeeze", "mark": "▲", "liberties": 2, "count": 3},
+            {"id": "f4", "type": "rec_connects", "mark": "▲", "mark2": "■", "moveMark": "A"},
+            {"id": "f5", "type": "rec_atari", "mark": "△", "moveMark": "A", "liberties": 1},
+            {"id": "f6", "type": "common_far_away", "playedMark": "B", "playedRegion": "左上", "recRegion": "右下",
+             "mark": "A"},
+            {"id": "f7", "type": "common_opponent_wants", "mark": "A", "exact": False, "commonMark": "B"},
+        ]
+        by_id = {f["id"]: f for f in why}
+        for f in why:
+            text = narrate_template.why_text(f)
+            self.assertEqual(verify.check_sentence(text, [f["id"]], by_id, {"✕", "A", "B", "▲", "■", "△"}, text), [])
+
+
 class SummaryTest(unittest.TestCase):
     def test_summary(self):
         kps = [{"kind": "mistake", "category": "life_death"}, {"kind": "mistake", "category": "life_death"},

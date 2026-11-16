@@ -25,6 +25,7 @@ PEER_CLOSE = 1.0  # points: recommend the stronger players' move when it is this
 PEER_MIN_VISITS = 16
 MIN_CAPTURE = 2  # single stones taken somewhere in a long variation are mostly noise
 NEAR_LIBS = 3  # "A touches a group with only N liberties" is worth saying up to this many
+FAR_AWAY = 6  # lines between ✕ and A before "you played elsewhere" is said
 # Players at the student's own level play the recommended move this often: the mistake was a slip.
 SLIP_MANY = 0.25
 SLIP_MOST = 0.5
@@ -60,16 +61,26 @@ class KeyFacts:
         if point and not any(m.get("point") == point for m in self.marks):
             self.marks.append({"label": label, "type": "point", "point": point, "role": role})
 
-    def mark_group(self, stones: set, student: bool) -> str:
+    def mark_group(self, stones: set, student: bool) -> str | None:
+        """The group's label (reused if it is already marked); None when the labels run out."""
         points = sorted(xy_to_sgf(p) for p in stones)
         for m in self.marks:
             if m["type"] == "group" and m["points"] == points:
                 return m["label"]
         labels = STUDENT_LABELS if student else OPPONENT_LABELS
         used = {m["label"] for m in self.marks}
-        label = next((lb for lb in labels if lb not in used), labels[-1])
+        label = next((lb for lb in labels if lb not in used), None)
+        if label is None:
+            return None
         self.marks.append({"label": label, "type": "group", "points": points, "owner": "student" if student else "opponent"})
         return label
+
+    def group_fact(self, type_: str, stones: set, student: bool, **values) -> dict | None:
+        """Adds a fact about a marked group; skipped when the group cannot get a label."""
+        label = self.mark_group(stones, student)
+        if label is None:
+            return None
+        return self.add(type_, mark=label, **values)
 
 
 def region(points: list) -> tuple[str, int]:
@@ -188,11 +199,105 @@ def near_group(k: KeyFacts, board: Board, point: str, student: str) -> None:
     if best is None:
         return
     stones, libs, color = best
-    label = k.mark_group(stones, color == student)
-    k.add(
-        "rec_near_group", mark=label, pointMark="A", owner="student" if color == student else "opponent",
-        liberties=len(libs), count=len(stones),
+    k.group_fact(
+        "rec_near_group", stones, color == student, pointMark="A",
+        owner="student" if color == student else "opponent", liberties=len(libs), count=len(stones),
     )
+
+
+def _touching(board: Board, xy) -> dict[str, list[tuple[set, set]]]:
+    """Distinct groups touching an empty point, by color: (stones, liberties)."""
+    out: dict[str, list[tuple[set, set]]] = {"B": [], "W": []}
+    seen: set = set()
+    for n in board.neighbors(xy):
+        color = board.get(n)
+        if color is None or n in seen:
+            continue
+        stones, libs = board.group(n)
+        seen |= stones
+        out[color].append((stones, libs))
+    return out
+
+
+def shape_facts(k: KeyFacts, board: Board, point: str, student: str, mark: str = "A") -> None:
+    """What the move at `point` (A) does to the stones next to it, from the board alone.
+
+    - `rec_connects`: A touches two of the student's groups, so it joins them;
+    - `rec_cuts`: A touches two opponent groups (2+ stones each), so they can no longer join there;
+    - `rec_atari` / `rec_presses`: after A an opponent group has 1 / 2 liberties (it had more).
+    """
+    xy = sgf_to_xy(point, board.size) if point else None
+    if xy is None or board.get(xy) is not None:
+        return
+    opponent = other(student)
+    near = _touching(board, xy)
+    mine = sorted(near[student], key=lambda g: -len(g[0]))
+    if len(mine) >= 2 and len(mine[0][0]) + len(mine[1][0]) >= 3:
+        a = k.mark_group(mine[0][0], True)
+        b = k.mark_group(mine[1][0], True)
+        if a and b and a != b:
+            k.add("rec_connects", mark=a, mark2=b, moveMark=mark)
+    theirs = sorted((g for g in near[opponent] if len(g[0]) >= 2), key=lambda g: -len(g[0]))
+    if len(theirs) >= 2:
+        a = k.mark_group(theirs[0][0], False)
+        b = k.mark_group(theirs[1][0], False)
+        if a and b and a != b:
+            k.add("rec_cuts", mark=a, mark2=b, moveMark=mark)
+    after = board.copy()
+    captured = after.play(student, xy)
+    if captured:
+        return  # a capture is told by best_capture
+    squeezed = []
+    for stones, libs in near[opponent]:
+        if len(stones) < 2:
+            continue
+        left = after.group(next(iter(stones)))[1]
+        if len(left) < len(libs) and len(left) <= 2:
+            squeezed.append((len(left), -len(stones), stones))
+    if squeezed:
+        left, _, stones = min(squeezed, key=lambda s: (s[0], s[1]))
+        if not any(f["type"] == "rec_near_group" and f["owner"] == "opponent" and f.get("liberties") == left
+                   for f in k.facts):
+            k.group_fact("rec_atari" if left == 1 else "rec_presses", stones, False, moveMark=mark, liberties=left)
+
+
+def refute_squeeze(k: KeyFacts, before_board: Board, after_board: Board, reply: str, student: str) -> None:
+    """After ✕, the opponent's best reply leaves one of the student's groups with 1-2 liberties."""
+    xy = sgf_to_xy(reply, after_board.size) if reply else None
+    if xy is None or after_board.get(xy) is not None:
+        return
+    board = after_board.copy()
+    board.play(other(student), xy)
+    worst = None
+    for color, stones, libs in board.groups(student):
+        shown = {p for p in stones if before_board.get(p) == student}
+        if len(shown) < 2 or len(libs) > 2:
+            continue
+        had = after_board.group(next(iter(shown)))[1]
+        if len(libs) >= len(had):
+            continue
+        if worst is None or (len(libs), -len(shown)) < (len(worst[1]), -len(worst[0])):
+            worst = (shown, libs)
+    if worst:
+        k.group_fact("refute_squeeze", worst[0], True, liberties=len(worst[1]), count=len(worst[0]))
+
+
+def where_facts(k: KeyFacts, after: dict, played: str, rec: str, size: int, prefix: str = "") -> None:
+    """Where the move went compared with A, and whether A is where the opponent wants to play.
+
+    For a good move the same questions are asked about the usual move B (prefix "common_"):
+    B is far from A, and after B the opponent wants to play at A.
+    """
+    p, r = sgf_to_xy(played, size) if played else None, sgf_to_xy(rec, size) if rec else None
+    if p and r and max(abs(p[0] - r[0]), abs(p[1] - r[1])) >= FAR_AWAY:
+        played_region, rec_region = region([p])[0], region([r])[0]
+        if played_region != rec_region:
+            k.add(f"{prefix}far_away", playedMark="B" if prefix else "✕", playedRegion=played_region,
+                  recRegion=rec_region, mark="A")
+    if r and after and after.get("moveInfos"):
+        reply = sgf_to_xy(gtp_sgf(after["moveInfos"][0]["move"], size), size)
+        if reply and max(abs(reply[0] - r[0]), abs(reply[1] - r[1])) <= 1:
+            k.add(f"{prefix}opponent_wants", mark="A", exact=reply == r, **({"commonMark": "B"} if prefix else {}))
 
 
 def mistake_facts(
@@ -273,25 +378,21 @@ def mistake_facts(
     for stones in _atari_groups(before_board, student):
         still = after_board.group(next(iter(stones)))
         if still[0] and len(still[1]) == 1 and stones & lost_mine:
-            label = k.mark_group(stones, True)
-            k.add("atari_ignored", mark=label, count=len(stones))
+            k.group_fact("atari_ignored", stones, True, count=len(stones))
             break
     if played_xy and not k.has("atari_ignored"):
         stones, libs = after_board.group(played_xy)
         shown = {p for p in stones if before_board.get(p) == student}
         if len(stones) >= 2 and len(libs) == 1 and shown and shown <= lost_mine:
-            label = k.mark_group(shown, True)
-            k.add("self_atari", mark=label, count=len(stones))
+            k.group_fact("self_atari", shown, True, count=len(stones))
     if lost_mine:
-        label = k.mark_group(lost_mine, True)
-        k.add("refute_capture", mark=label, count=len(lost_mine))
+        fact = k.group_fact("refute_capture", lost_mine, True, count=len(lost_mine))
         saved = {p for p in lost_mine if rec_board.get(p) == student}
-        if saved == lost_mine and rec != played:
-            k.add("best_save", mark=label, count=len(saved), moveMark="A")
+        if fact and saved == lost_mine and rec != played:
+            k.add("best_save", mark=fact["mark"], count=len(saved), moveMark="A")
     taken = {p for p in rec_lost[opponent] if before_board.get(p) == opponent}
     if len(taken) >= MIN_CAPTURE:
-        label = k.mark_group(taken, False)
-        k.add("best_capture", mark=label, count=len(taken), moveMark="A")
+        k.group_fact("best_capture", taken, False, count=len(taken), moveMark="A")
 
     own_before, own_after = before.get("ownership"), after.get("ownership")
     if own_before and own_after:
@@ -300,13 +401,11 @@ def mistake_facts(
         for stones, _ in sorted(dies, key=lambda d: len(d[0]), reverse=True)[:1]:
             shown = {p for p in stones if before_board.get(p) == student}
             if len(shown) >= 2:
-                label = k.mark_group(shown, True)
-                k.add("group_dies", mark=label, count=len(shown))
+                k.group_fact("group_dies", shown, True, count=len(shown))
         for stones, _ in sorted(lives, key=lambda d: len(d[0]), reverse=True)[:1]:
             shown = {p for p in stones if before_board.get(p) == opponent}
             if len(shown) >= 2:
-                label = k.mark_group(shown, False)
-                k.add("group_lives", mark=label, count=len(shown))
+                k.group_fact("group_lives", shown, False, count=len(shown))
         area = area_change(after_board, own_before, own_after, student, size)
         if area:
             name, count = region(area)
@@ -314,8 +413,15 @@ def mistake_facts(
                 k.marks.append({"label": "", "type": "area", "points": sorted(xy_to_sgf(p) for p in area)})
                 k.add("area_flip", count=count, region=name)
         k.category = category(after_board, own_before, own_after, number, move_loss, size)
+    # Why A: what it does on the board, and where it is compared with ✕.
     near_group(k, before_board, rec, student)
-    if any(k.has(t) for t in ("group_dies", "group_lives", "refute_capture", "best_capture", "atari_ignored")):
+    if rec != played:
+        reply = refute_moves[1][1] if len(refute_moves) > 1 else ""
+        refute_squeeze(k, before_board, after_board, reply, student)
+        shape_facts(k, before_board, rec, student)
+        where_facts(k, after, played, rec, size)
+    if any(k.has(t) for t in ("group_dies", "group_lives", "refute_capture", "best_capture", "atari_ignored",
+                              "rec_atari", "refute_squeeze")):
         k.category = "life_death"
 
     if peer and peer_diff is not None:
@@ -365,15 +471,15 @@ def good_facts(
     common_board, common_lost = replay(before_board, common_moves)
     k.lines.append({"name": "常见下法", "moves": [p for _, p in common_moves]})
     near_group(k, before_board, played, student)
+    shape_facts(k, before_board, played, student)
+    where_facts(k, probe, common, played, size, prefix="common_")
 
     taken = {p for p in good_lost[opponent] if before_board.get(p) == opponent}
     if len(taken) >= MIN_CAPTURE:
-        label = k.mark_group(taken, False)
-        k.add("best_capture", mark=label, count=len(taken), moveMark="A")
+        k.group_fact("best_capture", taken, False, count=len(taken), moveMark="A")
     lost = {p for p in common_lost[student] if before_board.get(p) == student}
     if len(lost) >= MIN_CAPTURE:
-        label = k.mark_group(lost, True)
-        k.add("common_capture", mark=label, count=len(lost), moveMark="B")
+        k.group_fact("common_capture", lost, True, count=len(lost), moveMark="B")
     if probe and before.get("ownership") and probe.get("ownership"):
         after_common = before_board.copy()
         after_common.play_sgf(student, common)
@@ -381,8 +487,7 @@ def good_facts(
         for stones, _ in sorted(dies, key=lambda d: len(d[0]), reverse=True)[:1]:
             shown = {p for p in stones if before_board.get(p) == student}
             if len(shown) >= 2:
-                label = k.mark_group(shown, True)
-                k.add("common_group_dies", mark=label, count=len(shown), moveMark="B")
+                k.group_fact("common_group_dies", shown, True, count=len(shown), moveMark="B")
         k.category = category(after_common, before["ownership"], probe["ownership"], number, common_loss, size)
     k.add("phase", phase=phase(number), category=k.category, move=number)
     k.title = "这手下得好"

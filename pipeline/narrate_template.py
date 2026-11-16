@@ -29,6 +29,36 @@ def near_group_text(f: dict) -> str:
     return f"{f['pointMark']} 紧挨着{whose} {f['mark']}，{f['mark']} 只剩 {f['liberties']} 口气。"
 
 
+def why_text(f: dict) -> str:
+    """Sentences for the "why" facts, shared by the template and the LLM's fact meanings."""
+    t = f["type"]
+    if t == "far_away":
+        return f"你下在了{f['playedRegion']}，可这时{f['recRegion']}的 A 更要紧。"
+    if t == "opponent_wants":
+        where = "A" if f.get("exact") else "A 旁边"
+        return f"你下了 ✕ 以后，对方最想下的就是 {where}：这里是双方都想要的地方。"
+    if t == "refute_squeeze":
+        return f"你下了 ✕ 以后，对方下一步就能让 {f['mark']} 只剩 {f['liberties']} 口气。"
+    if t == "rec_connects":
+        return f"下 {f['moveMark']} 能把 {f['mark']} 和 {f['mark2']} 连在一起。"
+    if t == "rec_cuts":
+        return f"下 {f['moveMark']} 能把对方的 {f['mark']} 和 {f['mark2']} 隔开。"
+    if t == "rec_atari":
+        return f"下 {f['moveMark']} 可以叫吃对方的 {f['mark']}。"
+    if t == "rec_presses":
+        return f"下 {f['moveMark']} 以后，对方的 {f['mark']} 只剩 {f['liberties']} 口气。"
+    if t == "common_far_away":
+        return f"大家常下的 B 在{f['playedRegion']}，可这时{f['recRegion']}的 A 更要紧。"
+    if t == "common_opponent_wants":
+        where = "A" if f.get("exact") else "A 旁边"
+        return f"假如你下的是 B，对方下一步最想下的正是 {where}。你抢先下了 A。"
+    return ""
+
+
+WHAT_HAPPENED = ("far_away", "opponent_wants", "refute_squeeze")
+WHY_A = ("rec_connects", "rec_cuts", "rec_atari", "rec_presses", "common_far_away", "common_opponent_wants")
+
+
 PHASE_ZH = {"opening": "布局", "middle": "中盘", "endgame": "官子"}
 CATEGORY_LONG = {"life_death": "死活/对杀", "big_point": "大场", "territory": "实地", "endgame": "官子"}
 
@@ -63,6 +93,8 @@ def describe(f: dict) -> str:
         "common_group_dies": f"下 B 的话，{f.get('mark')} 这块棋就危险了。",
         "phase": f"第 {f.get('move')} 手，{PHASE_ZH.get(f.get('phase'), '')}阶段，类别：{CATEGORY_LONG.get(f.get('category'), '其他')}。",
     }
+    if t in WHAT_HAPPENED or t in WHY_A:
+        return why_text(f)
     return texts.get(t, "")
 
 
@@ -105,6 +137,7 @@ def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
     f = _f(facts, "area_flip")
     if f:
         out.append(f"{f['region']}大约 {f['count']} 个点的地，变成了对方的。")
+    out += [why_text(f) for f in facts if f["type"] in WHAT_HAPPENED]
 
     peer = _f(facts, "peer_choice")
     if recommended.get("source") == "peer" and peer:
@@ -122,6 +155,7 @@ def mistake(kind: str, facts: list[dict], recommended: dict) -> list[str]:
     f = _f(facts, "best_capture")
     if f:
         out.append(f"下 A 的话，可以吃掉 {f['mark']} 这 {f['count']} 颗子。")
+    out += [why_text(f) for f in facts if f["type"] in WHY_A]
     f = _f(facts, "slip")
     if f:
         who = "多数" if f["share"] == "most" else "很多"
@@ -146,6 +180,7 @@ def good(facts: list[dict]) -> list[str]:
     f = _f(facts, "rec_near_group")
     if f:
         out.append(near_group_text(f))
+    out += [why_text(f) for f in facts if f["type"] in WHY_A]
     return out
 
 

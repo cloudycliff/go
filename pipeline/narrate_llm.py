@@ -58,7 +58,7 @@ class LLMError(RuntimeError):
 
 def payload(kp: dict) -> dict:
     """What the model is told about one key point."""
-    facts = [f for f in kp["facts"] if f["type"] not in HIDDEN_FACTS]
+    facts = shown_facts(kp)
     return {
         "类型": KIND_ZH.get(kp["kind"], kp["kind"]),
         "标记": sorted({m["label"] for m in kp["marks"] if m.get("label")}),
@@ -151,11 +151,20 @@ def _parse(text: str):
     return None
 
 
+def shown_facts(kp: dict) -> list[dict]:
+    return [f for f in kp["facts"] if f["type"] not in HIDDEN_FACTS]
+
+
+def recheck(result: dict, kp: dict) -> list[str]:
+    """Runs today's checks on a cached explanation (the rules grow as new inventions are found)."""
+    return verify.verify({"sentences": result["sentences"], "tip": result["tip"]}, shown_facts(kp), kp["marks"])
+
+
 def explain(client: Client, kp: dict, age: int, rank: str) -> dict:
     """Asks for an explanation, checks it, retries once with the violations. Never raises LLMError
     for bad content; the result says whether it was verified."""
     msgs = messages(kp, age, rank)
-    shown = [f for f in kp["facts"] if f["type"] not in HIDDEN_FACTS]
+    shown = shown_facts(kp)
     attempts = []
     for _ in range(2):
         text = client.chat(msgs)
