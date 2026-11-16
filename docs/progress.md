@@ -33,6 +33,8 @@
   `origin main`；没有变化就不提交。不在 `main` 分支时拒绝发布。也可单独 `python -m pipeline publish`。
 - `.cache/update.lock` 防止两次定时运行重叠；超过 3 小时的锁视为上次崩溃留下的，自动清掉。
 - `scripts/update.cmd`：切到项目目录（避开同名的 site-packages 包）后运行上面的命令，日志追加到 `logs/update.log`。
+- 网站：https://gogoreview.pages.dev/ （Cloudflare Pages，连 GitHub `cloudycliff/go` 的 `main` 分支，推送后约 10 秒更新）。
+  若 Cloudflare 提示 "disconnected from your Git account"，到 GitHub 的 Cloudflare Workers and Pages App 里重新给仓库授权，再推一个提交（可用 `git commit --allow-empty`）触发部署。
 - 部署检查（2026-11-16）：所有响应带 `X-Robots-Tag: noindex, nofollow`；`raw/`、`config.toml`、`pipeline/` 不在站点里；
   站点文件不含孩子昵称。**GitHub 仓库目前是公开的，raw/ 里的棋谱含孩子昵称，建议改成私有。**
 
