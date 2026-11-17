@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import ranks
 from .coords import sgf_to_gtp
-from .katago import KataGo
+from .katago import KataGo, KataGoError
 from .sgf import Game
 
 SCHEMA_VERSION = 1
@@ -158,6 +158,58 @@ def probe(
         engine.send(query)
         out[f"{index}:{point}"] = engine.responses(query_id, 1, timeout=600.0)[0]
         _progress(n, len(probes), started)
+    return out
+
+
+def line_key(index: int, color: str, moves: list[str]) -> str:
+    """Cache key of a variation: where it starts, who plays first, and its moves ("pass" for "")."""
+    return f"{index}:{color}:{' '.join(m or 'pass' for m in moves)}"
+
+
+def lines(
+    engine: KataGo,
+    game: Game,
+    student_color: str,
+    wanted: list[tuple[int, str, list[str]]],
+    visits: int,
+    log=print,
+) -> dict[str, dict]:
+    """Territory and lead after every step of the variations shown on the page.
+
+    `wanted` holds (move index, colour of the first move, SGF moves). Only what the page draws
+    is kept: Black's score lead and ownership (Black positive, rounded to 0.01) per step.
+    """
+    profile = student_profile(game, student_color)
+    out: dict[str, dict] = {}
+    started = time.monotonic()
+    for n, (index, first, moves) in enumerate(wanted, 1):
+        query_id = f"line-{n}"
+        query = base_query(game, query_id)
+        color, played = first, []
+        for m in moves:
+            played.append([color, sgf_to_gtp(m, game.size)])
+            color = "W" if color == "B" else "B"
+        query["moves"] = query["moves"][:index] + played
+        query.update(
+            {
+                "analyzeTurns": list(range(index + 1, index + len(moves) + 1)),
+                "maxVisits": visits,
+                "includeOwnership": True,
+                "overrideSettings": {"humanSLProfile": profile},
+            }
+        )
+        key = line_key(index, first, moves)
+        try:
+            engine.send(query)
+            got = engine.responses(query_id, len(moves), timeout=600.0)
+        except KataGoError as e:  # one odd line must not stop the page from being built
+            log(f"  变化 {key} 分析失败：{e}")
+            continue
+        out[key] = {
+            "scoreLead": [round(r["rootInfo"]["scoreLead"], 1) for r in got],
+            "ownership": [[round(v, 2) for v in r["ownership"]] for r in got],
+        }
+        _progress(n, len(wanted), started)
     return out
 
 

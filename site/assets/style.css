@@ -133,6 +133,21 @@ details.answer[open] > summary { background: var(--bg); color: var(--muted); bor
 .pill.alt { color: #fff; background: var(--blue); }
 .pill.group { color: var(--text); background: var(--bg); border: 1px solid var(--line); }
 
+/* Whole-game replay and the territory view */
+.replay { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 16px 14px; }
+.replay .board-wrap { margin-top: 6px; }
+.scrub { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.scrub input[type="range"] { flex: 1; min-width: 0; height: 44px; }
+.scrub .nav { font-size: 1.5rem; line-height: 1; width: 52px; padding: 0; }
+.replay .move-no { color: var(--muted); text-align: center; margin: 4px 0 0; }
+.situation { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; }
+button.toggle.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+.lead { font-weight: 700; }
+.lead.up { color: var(--green); }
+.lead.down { color: var(--red); }
+.counts { color: var(--muted); font-size: 0.9rem; margin-left: 10px; }
+.no-data { color: var(--muted); font-size: 0.9rem; }
+
 .summary { margin-top: 20px; font-weight: 700; text-align: center; }
 
 /* Board SVG */
@@ -142,6 +157,9 @@ details.answer[open] > summary { background: var(--bg); color: var(--muted); bor
 .board .stone.black { fill: #1d1d1d; }
 .board .stone.white { fill: #fbfbf8; stroke: #6d6d6d; stroke-width: 0.35; }
 .board .area { fill: var(--area); }
+.board .own.black { fill: #111; fill-opacity: 0.78; }
+.board .own.white { fill: #fff; fill-opacity: 0.9; stroke: #555; stroke-width: 0.25; }
+.board .stone.dead { opacity: 0.55; }
 .board .last { fill: none; stroke-width: 0.8; }
 .board .last.on-black { stroke: #fff; }
 .board .last.on-white { stroke: #222; }

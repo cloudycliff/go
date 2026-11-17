@@ -89,10 +89,30 @@ function el(name, attrs, parent) {
 
 const STARS = { 19: [3, 9, 15], 13: [3, 6, 9], 9: [2, 4, 6] };
 
+// Territory from the pipeline: one letter per point, row by row from the top; "a" = surely
+// White's, "j" = nobody's, "s" = surely Black's (build.py OWN_LETTERS).
+export function ownerAt(territory, size, x, y) {
+  return (territory.charCodeAt(y * size + x) - 106) / 9;
+}
+
+// Points each side is expected to end with (stones plus territory), from the territory string.
+export function territoryCounts(territory) {
+  let black = 0, white = 0;
+  for (let i = 0; i < territory.length; i++) {
+    const v = (territory.charCodeAt(i) - 106) / 9;
+    if (v > 0) black += v; else white -= v;
+  }
+  return { black, white };
+}
+
+const OWN_MIN = 0.15; // weaker than this: nobody's yet, nothing drawn
+const DEAD = 0.4; // a stone the other side owns at least this surely is drawn as dead
+
 // Draws `view` into an <svg>:
 //   view.position: Position; view.last: point of the last move;
 //   view.marks: [{label, type: point|group|area, point|points, role}];
-//   view.numbers: Map(point -> number) for variation stones; view.guess: point.
+//   view.numbers: Map(point -> number) for variation stones; view.guess: point;
+//   view.territory: territory string (see ownerAt) to draw who owns each point.
 export function draw(svg, view) {
   const size = view.position.size;
   const cell = 10;
@@ -112,9 +132,28 @@ export function draw(svg, view) {
     el("circle", { cx: at(x), cy: at(y), r: 0.9, class: "star" }, svg);
   }
 
-  // Territory that changes hands: small squares under everything else.
+  // Who owns each empty point: a square sized by how sure the AI is.
+  const owner = (p) => {
+    const [x, y] = toXY(p);
+    return ownerAt(view.territory, size, x, y);
+  };
+  const dead = new Set();
+  if (view.territory) {
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const p = toPoint(x, y);
+      const v = ownerAt(view.territory, size, x, y);
+      const stone = view.position.stones.get(p);
+      if (stone && (stone === "B" ? -v : v) >= DEAD) dead.add(p);
+      if (stone || Math.abs(v) < OWN_MIN) continue;
+      const half = 0.9 + 1.7 * Math.abs(v);
+      el("rect", { x: at(x) - half, y: at(y) - half, width: half * 2, height: half * 2,
+        class: `own ${v > 0 ? "black" : "white"}` }, svg);
+    }
+  }
+
+  // Territory that changes hands: small squares under everything else (not with the full view).
   for (const m of view.marks || []) {
-    if (m.type !== "area") continue;
+    if (m.type !== "area" || view.territory) continue;
     for (const p of m.points) {
       const [x, y] = toXY(p);
       el("rect", { x: at(x) - 2.2, y: at(y) - 2.2, width: 4.4, height: 4.4, class: "area" }, svg);
@@ -123,7 +162,14 @@ export function draw(svg, view) {
 
   for (const [p, color] of view.position.stones) {
     const [x, y] = toXY(p);
-    el("circle", { cx: at(x), cy: at(y), r: cell * 0.47, class: color === "B" ? "stone black" : "stone white" }, svg);
+    const cls = (color === "B" ? "stone black" : "stone white") + (dead.has(p) ? " dead" : "");
+    el("circle", { cx: at(x), cy: at(y), r: cell * 0.47, class: cls }, svg);
+  }
+  // Dead stones carry a square of the colour that owns them.
+  for (const p of dead) {
+    const [x, y] = toXY(p);
+    const v = owner(p);
+    el("rect", { x: at(x) - 2.4, y: at(y) - 2.4, width: 4.8, height: 4.8, class: `own ${v > 0 ? "black" : "white"}` }, svg);
   }
 
   const textOn = (p, text, cls) => {

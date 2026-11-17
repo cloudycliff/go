@@ -1,6 +1,6 @@
 // Single-game review page: game.html?id=<chessid>
 
-import { draw, pointFromEvent, positionAt } from "./board.js";
+import { draw, pointFromEvent, positionAt, territoryCounts } from "./board.js";
 import { drawCurve } from "./chart.js";
 
 const KIND = {
@@ -52,7 +52,87 @@ function candidateTable(list) {
       h("td", {}, c.note || "")))));
 }
 
-function keyPointCard(game, k) {
+// The 形势 line under a board: who leads (from the student's side) and each side's points.
+function situation(lead, territory, komi) {
+  if (lead == null || !territory) return [h("span", { class: "no-data" }, "这一步没有形势数据。")];
+  const n = Math.round(Math.abs(lead));
+  const text = n < 1 ? "双方差不多" : lead > 0 ? `你领先约 ${n} 目` : `对方领先约 ${n} 目`;
+  const { black, white } = territoryCounts(territory);
+  return [
+    h("span", { class: `lead ${n < 1 ? "" : lead > 0 ? "up" : "down"}` }, text),
+    h("span", { class: "counts" },
+      `黑约 ${Math.round(black)}，白约 ${Math.round(white)}` + (komi ? `（白另有贴目 ${komi}）` : "")),
+  ];
+}
+
+// A "形势" toggle with the line it controls; `onChange(on)` redraws the board.
+function situationBar(onChange) {
+  const info = h("span", { class: "situation-info" });
+  const btn = h("button", { class: "toggle", type: "button", "aria-pressed": "false" }, "形势");
+  let on = false;
+  const set = (value) => {
+    on = value;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", String(on));
+    info.hidden = !on;
+    onChange(on);
+  };
+  btn.addEventListener("click", () => set(!on));
+  info.hidden = true;
+  return { node: h("div", { class: "situation" }, btn, info), info, isOn: () => on, set };
+}
+
+// Whole game, move by move, with the 形势 view of each position.
+function replayBoard(data) {
+  const game = data.game;
+  const total = game.moves.length;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "board");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "棋盘");
+  let move = total;
+  const slider = h("input", { type: "range", min: "0", max: String(total), value: String(total), "aria-label": "第几手" });
+  const prevBtn = h("button", { class: "nav", type: "button", "aria-label": "上一手" }, "‹");
+  const nextBtn = h("button", { class: "nav", type: "button", "aria-label": "下一手" }, "›");
+  const label = h("p", { class: "move-no" });
+  const bar = situationBar(() => render());
+
+  function render() {
+    const pos = positionAt(game, move);
+    const territory = bar.isOn() ? data.territory?.[move] : null;
+    draw(svg, { position: pos, last: game.moves[move - 1]?.[1], territory });
+    slider.value = String(move);
+    prevBtn.disabled = move === 0;
+    nextBtn.disabled = move === total;
+    const played = game.moves[move - 1];
+    label.textContent = move === 0 ? "开局" : `第 ${move} 手（${COLOR_ZH[played[0]]}${played[1] ? "" : "，停一手"}）`;
+    if (bar.isOn()) bar.info.replaceChildren(...situation(data.curve[move]?.scoreLead, data.territory?.[move], game.komi));
+  }
+  const go = (m) => { move = Math.max(0, Math.min(total, m)); render(); };
+  slider.addEventListener("input", () => go(Number(slider.value)));
+  prevBtn.addEventListener("click", () => go(move - 1));
+  nextBtn.addEventListener("click", () => go(move + 1));
+  let touchX = null;
+  svg.addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+  svg.addEventListener("touchend", (e) => {
+    if (touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    touchX = null;
+    if (Math.abs(dx) > 40) go(move + (dx < 0 ? 1 : -1));
+  });
+  render();
+  const section = h("section", { class: "replay" },
+    h("h2", {}, "整盘棋"),
+    h("p", { class: "legend" }, "拖动滑块看每一手；点“形势”看 AI 估计的每块地归谁。"),
+    h("div", { class: "board-wrap" }, svg,
+      h("div", { class: "scrub" }, prevBtn, slider, nextBtn), label, bar.node));
+  section.goTo = go;
+  section.showSituation = bar.set;
+  return section;
+}
+
+function keyPointCard(data, k) {
+  const game = data.game;
   const base = positionAt(game, k.position.moveIndex);
   const prevMove = game.moves[k.position.moveIndex - 1];
   const state = { mode: "question", line: null, step: 0, guess: null };
@@ -66,17 +146,21 @@ function keyPointCard(game, k) {
   const nextBtn = h("button", { class: "nav", type: "button", "aria-label": "下一步" }, "›");
   const lineBtns = k.lines.map((line, i) =>
     h("button", { class: "line", type: "button", onclick: () => selectLine(i) }, line.name));
+  const bar = situationBar(() => render());
   const controls = h("div", { class: "controls", hidden: "" },
     h("div", { class: "lines" }, lineBtns),
-    h("div", { class: "stepper" }, prevBtn, stepLabel, nextBtn));
+    h("div", { class: "stepper" }, prevBtn, stepLabel, nextBtn),
+    bar.node);
   const feedback = h("p", { class: "feedback", hidden: "" });
 
   function render() {
-    let view;
+    let view, lead = null, territory = null;
     if (state.mode === "question") {
       view = { position: base, last: prevMove?.[1], guess: state.guess };
     } else if (state.line === null || state.step === 0) {
       view = { position: base, last: prevMove?.[1], marks: k.marks, guess: state.guess };
+      lead = data.curve[k.position.moveIndex]?.scoreLead;
+      territory = data.territory?.[k.position.moveIndex];
     } else {
       const pos = base.copy();
       const numbers = new Map();
@@ -89,6 +173,13 @@ function keyPointCard(game, k) {
         color = color === "B" ? "W" : "B";
       }
       view = { position: pos, numbers, last: moves[state.step - 1] };
+      const t = k.territory?.[state.line];
+      lead = t?.lead[state.step - 1];
+      territory = t?.own[state.step - 1];
+    }
+    if (bar.isOn() && state.mode === "answer") {
+      view.territory = territory;
+      bar.info.replaceChildren(...situation(lead, territory, game.komi));
     }
     draw(svg, view);
     if (state.line !== null) {
@@ -185,6 +276,7 @@ function keyPointCard(game, k) {
         h("p", { class: "hint" }, "可以直接点棋盘猜一猜，再看答案。"),
         details)));
   // Deep link (game.html?id=..&open=k1&line=0&step=3): opens the answer at a variation step.
+  card.showSituation = bar.set;
   card.openAt = (line, stepNo) => {
     details.open = true;
     state.mode = "answer";
@@ -218,6 +310,7 @@ async function main() {
     document.getElementById(k.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
+  const replay = replayBoard(data);
   root.replaceChildren(
     h("header", { class: "game-head" },
       h("a", { href: "./", class: "back" }, "‹ 全部对局"),
@@ -230,13 +323,20 @@ async function main() {
       h("h2", {}, "目差曲线"),
       h("p", { class: "legend" }, "线在上面：你领先；在下面：对方领先。点圆点看关键点。"),
       curve),
+    replay,
     h("section", { class: "cards" },
       h("h2", {}, data.smallGame ? "这盘下得不错，有两处可以更好" : `关键点（${data.keyPoints.length} 个）`),
-      data.keyPoints.map((k) => keyPointCard(g, k))),
+      data.keyPoints.map((k) => keyPointCard(data, k))),
     h("footer", { class: "summary" }, h("p", {}, data.summary)));
 
+  // Deep link: &move=N shows move N on the whole-game board; &situation=1 turns 形势 on.
   const params = new URLSearchParams(location.search);
+  if (params.has("move")) replay.goTo(Number(params.get("move")));
   const target = params.get("open") && document.getElementById(params.get("open"));
+  if (params.get("situation") === "1") {
+    replay.showSituation(true);
+    target?.showSituation?.(true);
+  }
   if (target?.openAt) {
     const line = params.has("line") ? Number(params.get("line")) : null;
     target.openAt(line, params.has("step") ? Number(params.get("step")) : null);

@@ -16,6 +16,9 @@ from .katago import KataGo
 SITE = ROOT / "site"
 SCHEMA_VERSION = 1
 DEEP_ROUNDS = 3  # deep pass, re-select, deep pass again for newly chosen positions ...
+# Territory on the page: each point's owner (Black positive) as one letter, -1..1 in 2*OWN_STEPS+1 steps.
+OWN_STEPS = 9
+OWN_LETTERS = "abcdefghijklmnopqrs"  # "a" = surely White's, "j" = nobody's, "s" = surely Black's
 
 
 class LazyEngine:
@@ -314,12 +317,70 @@ def write_site(data: dict, site: Path = SITE) -> Path:
     return path
 
 
+def territory_text(ownership: list[float] | None) -> str | None:
+    """One letter per point, row by row from the top: who owns it and how surely."""
+    if not ownership:
+        return None
+    return "".join(OWN_LETTERS[round(max(-1.0, min(1.0, v)) * OWN_STEPS) + OWN_STEPS] for v in ownership)
+
+
+def wanted_lines(data: dict) -> list[tuple[int, str, list[str]]]:
+    """The variations the page shows: (move index, colour of the first move, SGF moves)."""
+    moves = data["game"]["moves"]
+    out = []
+    for k in data["keyPoints"]:
+        i = k["position"]["moveIndex"]
+        for line in k["lines"]:
+            if line["moves"]:
+                out.append((i, moves[i][0], line["moves"]))
+    return out
+
+
+def ensure_lines(cfg: Config, game: sgf.Game, raw: dict, raw_path: Path, data: dict,
+                 engine: LazyEngine | None, log=print) -> None:
+    """Analyses every step of the variations shown, for the territory view (cached in raw["lines"])."""
+    have = raw.get("lines", {})
+    missing = [w for w in wanted_lines(data) if analyze.line_key(*w) not in have]
+    missing = list({analyze.line_key(*w): w for w in missing}.values())
+    if not missing:
+        return
+    if engine is None:
+        log(f"  还有 {len(missing)} 个变化没有形势数据（未启动 KataGo），这些变化不显示形势。")
+        return
+    log(f"分析 {len(missing)} 个变化的每一步，用于形势显示（每步 {cfg.overview_visits} visits）")
+    got = analyze.lines(engine.get(), game, raw["studentColor"], missing, cfg.overview_visits, log)
+    raw.setdefault("lines", {}).update(got)
+    analyze.write_raw(raw_path, raw)
+
+
+def add_territory(data: dict, raw: dict) -> None:
+    """Territory for every position of the game and every step of each variation shown.
+
+    Leads are from the student's side, like the curve; a variation without data gets null.
+    """
+    sign = _sign(raw["studentColor"])
+    data["territory"] = [territory_text(r.get("ownership")) for r in raw["overview"]["responses"]]
+    moves = data["game"]["moves"]
+    lines = raw.get("lines", {})
+    for k in data["keyPoints"]:
+        i = k["position"]["moveIndex"]
+        k["territory"] = []
+        for line in k["lines"]:
+            got = lines.get(analyze.line_key(i, moves[i][0], line["moves"])) if line["moves"] else None
+            k["territory"].append(None if not got else {
+                "lead": [round(sign * v, 1) for v in got["scoreLead"]],
+                "own": [territory_text(o) for o in got["ownership"]],
+            })
+
+
 def build(cfg: Config, game_id: str, engine: LazyEngine | None, log=print) -> dict:
     raw_path = cfg.raw_dir / f"{game_id}.json.gz"
     raw = analyze.load_raw(raw_path)
     game = sgf.parse(raw["sgf"])
     p = ensure_deep(cfg, game, raw, raw_path, engine, log)
     data = game_data(game_id, game, raw, p)
+    ensure_lines(cfg, game, raw, raw_path, data, engine, log)
+    add_territory(data, raw)
     path = write_site(data)
     log(f"已生成 {path.relative_to(ROOT)}：{len(data['keyPoints'])} 个关键点。{data['summary']}")
     return data
