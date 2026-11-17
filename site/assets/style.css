@@ -154,14 +154,8 @@ button.toggle.active { background: var(--text); color: var(--bg); border-color: 
   background: var(--tip); border-radius: var(--radius); color: inherit; text-decoration: none; font-weight: 700; min-height: 44px; }
 .habits-link .small { font-weight: normal; color: var(--muted); font-size: 0.9rem; }
 .overview p { margin: 0.4em 0; }
-.phase-bars { margin: 10px 0 6px; display: grid; gap: 8px; }
-.phase-row { display: grid; grid-template-columns: 3em minmax(0, 1fr) 4.5em; align-items: center; gap: 10px; }
-.phase-num { color: var(--muted); font-size: 0.9rem; text-align: right; }
-.bars { display: grid; gap: 3px; }
-.bar { height: 10px; border-radius: 5px; min-width: 2px; }
-.bar.me, .swatch.me { background: var(--blue); }
-.bar.them, .swatch.them { background: var(--line); }
-.swatch { display: inline-block; width: 0.9em; height: 0.9em; border-radius: 3px; margin-right: 4px; vertical-align: -0.1em; }
+.phase-lines { margin: 0.3em 0 0.5em; padding-left: 1.2em; }
+.phase-lines li { margin: 0.3em 0; }
 .lead-in { margin: 18px 0 0; }
 .habit { margin-top: 20px; }
 .habit > h2 { margin-bottom: 0.2em; }
