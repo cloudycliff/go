@@ -75,3 +75,16 @@ class HabitsTest(unittest.TestCase):
         slip = stats.habits(self.games(), pages)["habits"][0]
         self.assertEqual([(e["game"], e["keyPoint"]) for e in slip["examples"]], [("g1", "k3"), ("g0", "k1")])
         self.assertEqual(slip["games"], 4)  # unpublished games still count
+
+
+class PracticeTest(unittest.TestCase):
+    def test_questions_newest_first_with_habits(self):
+        games = HabitsTest().games()
+        pages = {
+            "g0": {"keyPoints": [{"id": "k1", "kind": "mistake", "move": 10, "title": "t", "moves": [10]}]},
+            "g3": {"keyPoints": [{"id": "k2", "kind": "good", "move": 14, "title": "好", "moves": [14]}]},
+        }
+        qs = stats.practice(games, pages)["questions"]
+        self.assertEqual([(q["game"], q["keyPoint"]) for q in qs], [("g3", "k2"), ("g0", "k1")])
+        self.assertEqual(qs[1]["habits"], ["slip"])
+        self.assertEqual(qs[0]["habits"], [])

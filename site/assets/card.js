@@ -130,7 +130,8 @@ export function replayBoard(data) {
 }
 
 // One key point: the position as a question, then the answer with marks, variations and 形势.
-// `opts.heading` replaces "第 N 手：" and `opts.id` the element id (both for the habits page).
+// `opts.heading` replaces "第 N 手：" and `opts.id` the element id; `opts.onGuess(result)` is told
+// "right" / "close" / "wrong" when the child taps a point (the practice page keeps score with it).
 export function keyPointCard(data, k, opts = {}) {
   const game = data.game;
   const base = positionAt(game, k.position.moveIndex);
@@ -257,16 +258,19 @@ export function keyPointCard(data, k, opts = {}) {
       if (!a || !b) return false;
       return Math.max(Math.abs(a.charCodeAt(0) - b.charCodeAt(0)), Math.abs(a.charCodeAt(1) - b.charCodeAt(1))) <= 1;
     };
-    let msg;
-    if (k.kind === "good") msg = p === k.played ? "对了！就是这一手。" : "你选了 ◯。看看实战下的 A 好在哪里。";
-    else if (p === rec || p === best) msg = "答对了！和推荐的下法一样。";
-    else if (alike.has(p)) msg = `答对了！${alike.get(p)} 和 A 差不多一样好。`;
+    let msg, result = "wrong";
+    if (k.kind === "good") {
+      if (p === k.played) { msg = "对了！就是这一手。"; result = "right"; }
+      else msg = "你选了 ◯。看看实战下的 A 好在哪里。";
+    } else if (p === rec || p === best) { msg = "答对了！和推荐的下法一样。"; result = "right"; }
+    else if (alike.has(p)) { msg = `答对了！${alike.get(p)} 和 A 差不多一样好。`; result = "right"; }
     else if (p === k.played) msg = "你选的和实战一样（✕），看看哪里有问题。";
-    else if (near(p, rec)) msg = "很接近了！推荐的是旁边的 A。";
+    else if (near(p, rec)) { msg = "很接近了！推荐的是旁边的 A。"; result = "close"; }
     else msg = "你选了 ◯，对比一下推荐的 A。";
     feedback.replaceChildren(...richText(msg));
     feedback.hidden = false;
     details.open = true;
+    opts.onGuess?.(result);
   });
 
   render();

@@ -150,9 +150,19 @@ button.toggle.active { background: var(--text); color: var(--bg); border-color: 
 .no-data { color: var(--muted); font-size: 0.9rem; }
 
 /* 我的常见问题 */
-.habits-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; margin: 0 0 14px;
-  background: var(--tip); border-radius: var(--radius); color: inherit; text-decoration: none; font-weight: 700; min-height: 44px; }
-.habits-link .small { font-weight: normal; color: var(--muted); font-size: 0.9rem; }
+.tools { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin: 0 0 14px; }
+.tool { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px;
+  background: var(--tip); border-radius: var(--radius); color: inherit; text-decoration: none; min-height: 44px; }
+.tool .small { color: var(--muted); font-size: 0.9rem; }
+.tool .go { font-weight: 700; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.chip { border-radius: 999px; }
+.chip.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+button.primary { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 700; padding: 6px 22px; }
+.progress { font-weight: 700; margin: 14px 0 0; }
+.next-row { display: flex; justify-content: flex-end; margin: 4px 0 20px; }
+.done { margin-top: 14px; }
+.done button { margin-top: 6px; }
 .overview p { margin: 0.4em 0; }
 .phase-lines { margin: 0.3em 0 0.5em; padding-left: 1.2em; }
 .phase-lines li { margin: 0.3em 0; }

@@ -12,17 +12,24 @@ function h(tag, attrs, ...children) {
   return node;
 }
 
-// A link to "我的常见问题" above the list, once the statistics exist.
-async function habitsLink(list) {
-  try {
-    const res = await fetch("data/habits.json", { cache: "no-cache" });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data.habits?.length) return;
-    list.before(h("a", { class: "habits-link", href: "habits.html" },
-      h("span", {}, "我的常见问题", h("br"), h("span", { class: "small" }, `最近 ${data.games} 盘棋里最常见的 ${data.habits.length} 件事`)),
-      h("span", {}, "›")));
-  } catch { /* no link */ }
+// Links to the pages across games (常见问题, 做题, 好棋集锦), once their data is published.
+async function toolLinks(list) {
+  const get = async (url) => {
+    try {
+      const res = await fetch(url, { cache: "no-cache" });
+      return res.ok ? await res.json() : null;
+    } catch { return null; }
+  };
+  const [habits, practice] = await Promise.all([get("data/habits.json"), get("data/practice.json")]);
+  const tiles = [];
+  const tile = (href, title, sub) => h("a", { class: "tool", href },
+    h("span", {}, h("b", {}, title), h("br"), h("span", { class: "small" }, sub)), h("span", { class: "go" }, "›"));
+  if (habits?.habits?.length) tiles.push(tile("habits.html", "我的常见问题", `最近 ${habits.games} 盘棋里最常见的 ${habits.habits.length} 件事`));
+  const questions = practice?.questions || [];
+  if (questions.length) tiles.push(tile("practice.html", "做题练习", `${questions.length} 道题，都来自你自己的棋`));
+  const goods = questions.filter((q) => q.kind === "good").length;
+  if (goods) tiles.push(tile("goods.html", "好棋集锦", `你下出的 ${goods} 手好棋`));
+  if (tiles.length) list.before(h("nav", { class: "tools" }, tiles));
 }
 
 async function main() {
@@ -37,7 +44,7 @@ async function main() {
     return;
   }
   if (!games.length) { root.textContent = "还没有复盘。"; return; }
-  habitsLink(root);
+  toolLinks(root);
   root.replaceChildren(...games.map((g) =>
     h("a", { class: `game-card ${g.result}`, href: `game.html?id=${encodeURIComponent(g.id)}` },
       h("div", { class: "row" },

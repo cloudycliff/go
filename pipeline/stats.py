@@ -418,3 +418,24 @@ def _examples(tags: set[str], games: list[GameStats], pages: dict[str, dict], sh
         if len(out) == MAX_EXAMPLES:
             break
     return out
+
+
+def practice(games: list[GameStats], pages: dict[str, dict]) -> dict:
+    """Every published key point as a question, newest first, with the habits its moves show.
+
+    The practice page filters by these habit keys; the good-move page takes kind == "good".
+    """
+    questions = []
+    for g in sorted(games, key=lambda g: (g.date, g.id), reverse=True):
+        page = pages.get(g.id)
+        if not page:
+            continue
+        by_number = {m.number: m for m in g.student}
+        for k in page["keyPoints"]:
+            moves = [by_number[n] for n in k["moves"] if n in by_number]
+            tags = set().union(*(m.tags for m in moves if m.bad and not m.decided)) if moves else set()
+            questions.append({
+                "game": g.id, "keyPoint": k["id"], "date": g.date, "move": k["move"], "kind": k["kind"],
+                "title": k["title"], "habits": [h["key"] for h in HABITS if tags & h["tags"]],
+            })
+    return {"habits": [{"key": h["key"], "title": h["title"]} for h in HABITS], "questions": questions}

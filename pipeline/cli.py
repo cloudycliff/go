@@ -274,6 +274,7 @@ def _build(cfg: Config, game_ids: list[str], use_engine: bool) -> int:
     finally:
         if engine:
             engine.close()
+    _refresh_stats(cfg)
     _out("本地预览：python -m pipeline serve，然后打开 http://localhost:8000/")
     return 0
 
@@ -286,8 +287,15 @@ def cmd_build(cfg: Config, args: argparse.Namespace) -> int:
     return _build(cfg, ids, use_engine=not args.no_engine)
 
 
-def cmd_stats(cfg: Config, args: argparse.Namespace) -> int:
-    """Statistics across every analysed game, published or local, into local/report.md."""
+STATS_FILES = ("habits.json", "practice.json")  # child pages fed by `stats`, in site/data/ once published
+
+
+def _write_stats(cfg: Config, site: bool) -> int:
+    """local/report.md, plus the data of "我的常见问题" and the practice / good-move pages.
+
+    With `site` the page data goes to site/data/ (published with the next publish); otherwise to
+    local/, which `serve` uses for a preview.
+    """
     from . import stats
 
     games = stats.load_all([(cfg.raw_dir, True), (cfg.local_raw_dir, False)])
@@ -303,17 +311,32 @@ def cmd_stats(cfg: Config, args: argparse.Namespace) -> int:
         page = build.SITE / "data" / "games" / f"{g.id}.json"
         if g.published and page.exists():
             pages[g.id] = json.loads(page.read_text(encoding="utf-8"))
-    data = stats.habits(games, pages)
-    target = build.SITE / "data" / "habits.json" if args.site else ROOT / "local" / "habits.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    names = "、".join(h["title"] for h in data["habits"]) or "没有"
-    if args.site:
-        _out(f"已生成 {target.relative_to(ROOT).as_posix()}：{names}。下次 publish 会发布到网站。")
-    else:
-        _out(f"已生成 {target.relative_to(ROOT).as_posix()}：{names}。"
-             "本机预览 serve 时可以看到“我的常见问题”页；要放到网站上，用 stats --site。")
+    habits = stats.habits(games, pages)
+    practice = stats.practice(games, pages)
+    folder = build.SITE / "data" if site else ROOT / "local"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, data in zip(STATS_FILES, (habits, practice)):
+        (folder / name).write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    names = "、".join(h["title"] for h in habits["habits"]) or "没有"
+    goods = sum(q["kind"] == "good" for q in practice["questions"])
+    where = folder.relative_to(ROOT).as_posix()
+    _out(f"已生成 {where}/habits.json（常见问题：{names}）和 practice.json（{len(practice['questions'])} 道题，"
+         f"其中好棋 {goods} 个）。")
+    if not site:
+        _out("本机预览 serve 时可以看到这些页面；要放到网站上，用 stats --site。")
     return 0
+
+
+def _refresh_stats(cfg: Config) -> None:
+    """After new pages are built: keep the published stats pages up to date (never publishes them first)."""
+    if (build.SITE / "data" / "habits.json").exists():
+        _out("更新“我的常见问题”、做题和好棋集锦的数据")
+        _write_stats(cfg, site=True)
+
+
+def cmd_stats(cfg: Config, args: argparse.Namespace) -> int:
+    """Statistics across every analysed game, published or local."""
+    return _write_stats(cfg, args.site)
 
 
 def cmd_serve(cfg: Config, args: argparse.Namespace) -> int:
@@ -331,9 +354,10 @@ def cmd_serve(cfg: Config, args: argparse.Namespace) -> int:
         }
 
         def translate_path(self, path):
-            # Preview the child's habits page from local/ until it is put on the site.
-            local = ROOT / "local" / "habits.json"
-            if path.split("?")[0] == "/data/habits.json" and not (build.SITE / "data" / "habits.json").exists()                     and local.exists():
+            # Preview the stats pages from local/ until their data is put on the site.
+            name = path.split("?")[0].removeprefix("/data/")
+            local = ROOT / "local" / name
+            if name in STATS_FILES and not (build.SITE / "data" / name).exists() and local.exists():
                 return str(local)
             return super().translate_path(path)
 
@@ -413,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_collect)
 
     p = sub.add_parser("stats", help="多盘统计：已发布和本机的全部对局 → local/report.md 和“我的常见问题”页的数据")
-    p.add_argument("--site", action="store_true", help="把“我的常见问题”的数据写进 site/（之后 publish 就会上网站）")
+    p.add_argument("--site", action="store_true", help="把常见问题、做题和好棋集锦的数据写进 site/（之后 publish 就会上网站）")
     p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("publish", help="提交 site/ 和 raw/ 并推送")
