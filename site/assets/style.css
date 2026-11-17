@@ -103,6 +103,7 @@ a { color: var(--blue); }
 .controls { margin-top: 10px; }
 .controls[hidden] { display: none; }
 .lines { display: flex; flex-wrap: wrap; gap: 8px; }
+.lines .reset { margin-left: auto; }
 button {
   font: inherit; min-height: 44px; min-width: 44px; padding: 6px 14px; border-radius: 10px;
   border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer;

@@ -144,11 +144,13 @@ function keyPointCard(data, k) {
   const stepLabel = h("span", { class: "step" });
   const prevBtn = h("button", { class: "nav", type: "button", "aria-label": "上一步" }, "‹");
   const nextBtn = h("button", { class: "nav", type: "button", "aria-label": "下一步" }, "›");
+  // Back to the position of the question, with the marks, from any variation step.
+  const resetBtn = h("button", { class: "reset", type: "button", onclick: () => reset() }, "↺ 回到原图");
   const lineBtns = k.lines.map((line, i) =>
     h("button", { class: "line", type: "button", onclick: () => selectLine(i) }, line.name));
   const bar = situationBar(() => render());
   const controls = h("div", { class: "controls", hidden: "" },
-    h("div", { class: "lines" }, lineBtns),
+    h("div", { class: "lines" }, lineBtns, resetBtn),
     h("div", { class: "stepper" }, prevBtn, stepLabel, nextBtn),
     bar.node);
   const feedback = h("p", { class: "feedback", hidden: "" });
@@ -192,8 +194,14 @@ function keyPointCard(data, k) {
       prevBtn.disabled = nextBtn.disabled = true;
     }
     lineBtns.forEach((b, i) => b.classList.toggle("active", i === state.line));
+    resetBtn.disabled = state.line === null;
   }
 
+  function reset() {
+    state.line = null;
+    state.step = 0;
+    render();
+  }
   function selectLine(i) {
     if (state.line !== i) state.step = 1;
     state.line = i;
