@@ -12,6 +12,19 @@ function h(tag, attrs, ...children) {
   return node;
 }
 
+// A link to "我的常见问题" above the list, once the statistics exist.
+async function habitsLink(list) {
+  try {
+    const res = await fetch("data/habits.json", { cache: "no-cache" });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.habits?.length) return;
+    list.before(h("a", { class: "habits-link", href: "habits.html" },
+      h("span", {}, "我的常见问题", h("br"), h("span", { class: "small" }, `最近 ${data.games} 盘棋里最常见的 ${data.habits.length} 件事`)),
+      h("span", {}, "›")));
+  } catch { /* no link */ }
+}
+
 async function main() {
   const root = document.getElementById("list");
   let games;
@@ -24,6 +37,7 @@ async function main() {
     return;
   }
   if (!games.length) { root.textContent = "还没有复盘。"; return; }
+  habitsLink(root);
   root.replaceChildren(...games.map((g) =>
     h("a", { class: `game-card ${g.result}`, href: `game.html?id=${encodeURIComponent(g.id)}` },
       h("div", { class: "row" },

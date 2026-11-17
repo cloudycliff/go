@@ -298,6 +298,21 @@ def cmd_stats(cfg: Config, args: argparse.Namespace) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(stats.report(games), encoding="utf-8")
     _out(f"已生成 {path.relative_to(ROOT).as_posix()}（{len(games)} 局）。这个文件只在本机，不会提交。")
+    pages = {}
+    for g in games:
+        page = build.SITE / "data" / "games" / f"{g.id}.json"
+        if g.published and page.exists():
+            pages[g.id] = json.loads(page.read_text(encoding="utf-8"))
+    data = stats.habits(games, pages)
+    target = build.SITE / "data" / "habits.json" if args.site else ROOT / "local" / "habits.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    names = "、".join(h["title"] for h in data["habits"]) or "没有"
+    if args.site:
+        _out(f"已生成 {target.relative_to(ROOT).as_posix()}：{names}。下次 publish 会发布到网站。")
+    else:
+        _out(f"已生成 {target.relative_to(ROOT).as_posix()}：{names}。"
+             "本机预览 serve 时可以看到“我的常见问题”页；要放到网站上，用 stats --site。")
     return 0
 
 
@@ -314,6 +329,13 @@ def cmd_serve(cfg: Config, args: argparse.Namespace) -> int:
             ".css": "text/css",
             ".svg": "image/svg+xml",
         }
+
+        def translate_path(self, path):
+            # Preview the child's habits page from local/ until it is put on the site.
+            local = ROOT / "local" / "habits.json"
+            if path.split("?")[0] == "/data/habits.json" and not (build.SITE / "data" / "habits.json").exists()                     and local.exists():
+                return str(local)
+            return super().translate_path(path)
 
     handler = functools.partial(Handler, directory=str(build.SITE))
     with http.server.ThreadingHTTPServer((args.bind, args.port), handler) as server:
@@ -390,7 +412,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=20, help="看最近几局（默认 20）")
     p.set_defaults(func=cmd_collect)
 
-    p = sub.add_parser("stats", help="多盘统计：已发布和本机的全部对局 → local/report.md")
+    p = sub.add_parser("stats", help="多盘统计：已发布和本机的全部对局 → local/report.md 和“我的常见问题”页的数据")
+    p.add_argument("--site", action="store_true", help="把“我的常见问题”的数据写进 site/（之后 publish 就会上网站）")
     p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("publish", help="提交 site/ 和 raw/ 并推送")

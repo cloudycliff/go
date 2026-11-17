@@ -291,3 +291,130 @@ def report(games: list[GameStats]) -> str:
         w(f"- {r['text']}：" + "；".join(f"{m.date} {m.game} 第 {m.number} 手（亏约 {m.loss:.0f} 目）" for m in examples))
     w("")
     return "\n".join(out)
+
+
+# ---- The page for the child ---------------------------------------------------------------
+
+# Habits the child page can name: features grouped into one lesson each, in a child's words.
+HABITS = [
+    {
+        "key": "safety",
+        "tags": {"group_dies", "refute_squeeze", "played_short", "refute_capture"},
+        "title": "先照顾好自己气紧的棋",
+        "text": "亏得多的棋里，常常是自己的一块棋气变少了，被对方吃掉或者变得很危险。",
+        "tip": "落子前先数一数：自己哪块棋只剩两三口气？有的话先补一手。",
+    },
+    {
+        "key": "slip",
+        "tags": {"slip"},
+        "title": "有些好棋，你本来能找到",
+        "text": "这些地方，和你水平差不多的人多数都能下对。不是不会，是没有停下来想一想。",
+        "tip": "落子前停一秒，问问自己：有没有更急、更大的地方？",
+    },
+    {
+        "key": "connect",
+        "tags": {"rec_connects"},
+        "title": "该连的时候先连上",
+        "text": "AI 最想下的是把你的两块棋连在一起，你下了别处，后来两块棋都变弱了。",
+        "tip": "看到自己的两块棋快要被分开，先想想要不要连上。",
+    },
+    {
+        "key": "punish",
+        "tags": {"missed_punish"},
+        "title": "对方下错了，要抓住机会",
+        "text": "对方刚下了一手不好的棋，你没有马上抓住它的毛病。",
+        "tip": "对方下完一手，先看看它有没有留下毛病，能不能马上抓住。",
+    },
+    {
+        "key": "urgent",
+        "tags": {"missed_urgent"},
+        "title": "急所不要一直放着",
+        "text": "同一个要紧的地方，好几手都没有去下。",
+        "tip": "每次落子前，先看看上一次的急所还在不在。",
+    },
+    {
+        "key": "followed",
+        "tags": {"followed"},
+        "title": "不要总跟着对方下",
+        "text": "对方下在哪里，你就应在它旁边，可这时别处更要紧。",
+        "tip": "对方下完，先想想：一定要应吗？有没有更大的地方？",
+    },
+]
+MAX_HABITS = 3
+HABIT_RATIO = 1.3  # the child's share must be this many times the opponents' to count as a habit
+MAX_EXAMPLES = 2
+
+
+def habits(games: list[GameStats], pages: dict[str, dict]) -> dict:
+    """Data for the child's page: counts only, and examples from key points already published.
+
+    `pages` maps a published game id to its site data (site/data/games/<id>.json). Unpublished
+    games add to the counts but never to the examples, so their boards stay on this computer.
+    """
+    live_mine = [m for g in games for m in _live(g.student)]
+    live_theirs = [m for g in games for m in _live(g.opponent)]
+    bad_mine = [m for m in live_mine if m.bad]
+    bad_theirs = [m for m in live_theirs if m.bad]
+    found = []
+    shown: set[tuple[str, str]] = set()  # a key point illustrates one habit only
+    for h in HABITS:
+        hit = [m for m in bad_mine if m.tags & h["tags"]]
+        opp = sum(bool(m.tags & h["tags"]) for m in bad_theirs)
+        share = len(hit) / max(1, len(bad_mine))
+        opp_share = opp / max(1, len(bad_theirs))
+        n_games = len({m.game for m in hit})
+        if n_games < MIN_GAMES or share < HABIT_RATIO * opp_share:
+            continue
+        found.append({
+            "key": h["key"], "title": h["title"], "text": h["text"], "tip": h["tip"],
+            "games": n_games, "share": round(share, 2), "opponentShare": round(opp_share, 2),
+            "examples": _examples(h["tags"], games, pages, shown),
+            "_gap": share - opp_share,
+        })
+    found.sort(key=lambda r: -r["_gap"])
+    for r in found:
+        del r["_gap"]
+    phases = []
+    for ph in PHASES:
+        a = [m for m in live_mine if m.phase == ph]
+        b = [m for m in live_theirs if m.phase == ph]
+        phases.append({"phase": ph, "rate": round(_rate(a), 1), "opponentRate": round(_rate(b), 1)})
+    return {
+        "games": len(games),
+        "from": games[0].date if games else "",
+        "to": games[-1].date if games else "",
+        "rate": round(_rate(live_mine), 1),
+        "opponentRate": round(_rate(live_theirs), 1),
+        "phases": phases,
+        "habits": found[:MAX_HABITS],
+    }
+
+
+def _examples(tags: set[str], games: list[GameStats], pages: dict[str, dict], shown: set) -> list[dict]:
+    """Published key points whose moves include a bad move with one of `tags`: the biggest first.
+
+    Key points already in `shown` (used for another habit) are skipped; the ones chosen are added.
+    """
+    scored = []
+    for g in games:
+        page = pages.get(g.id)
+        if not page:
+            continue
+        by_number = {m.number: m for m in g.student}
+        for k in page["keyPoints"]:
+            if k["kind"] == "good":
+                continue
+            hit = [by_number[n] for n in k["moves"] if n in by_number]
+            hit = [m for m in hit if m.bad and not m.decided and m.tags & tags]
+            if hit and (g.id, k["id"]) not in shown:
+                scored.append((max(m.loss for m in hit), g.id, k["id"], g.date))
+    out, used = [], set()
+    for loss, gid, kid, date in sorted(scored, key=lambda r: (-r[0], r[1], r[2])):
+        if gid in used:
+            continue  # one example per game
+        used.add(gid)
+        shown.add((gid, kid))
+        out.append({"game": gid, "keyPoint": kid, "date": date})
+        if len(out) == MAX_EXAMPLES:
+            break
+    return out

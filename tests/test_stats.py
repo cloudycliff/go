@@ -47,3 +47,31 @@ class StatsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HabitsTest(unittest.TestCase):
+    def games(self):
+        out = []
+        for n in range(4):
+            gid = f"g{n}"
+            mine = [move(gid, 10, "mistake", loss=5 + n, tags={"slip"}),
+                    move(gid, 12, "mistake", loss=1, tags={"missed_urgent"}), move(gid, 14)]
+            theirs = [move(gid, 11, "mistake", tags={"missed_urgent"}), move(gid, 13, "mistake")]
+            out.append(stats.GameStats(gid, f"2026-11-0{n + 1}", "B", 100, "B+R", mine, theirs, n < 2))
+        return out
+
+    def test_habit_needs_more_than_the_opponents(self):
+        data = stats.habits(self.games(), {})
+        keys = [x["key"] for x in data["habits"]]
+        self.assertEqual(keys, ["slip"])  # missed_urgent: the opponents do it just as often
+
+    def test_examples_only_from_published_pages_one_per_game(self):
+        pages = {
+            "g0": {"keyPoints": [{"id": "k1", "kind": "mistake", "moves": [10]},
+                                  {"id": "k2", "kind": "mistake", "moves": [10, 12]}]},
+            "g1": {"keyPoints": [{"id": "k1", "kind": "good", "moves": [10]},
+                                  {"id": "k3", "kind": "mistake", "moves": [10]}]},
+        }
+        slip = stats.habits(self.games(), pages)["habits"][0]
+        self.assertEqual([(e["game"], e["keyPoint"]) for e in slip["examples"]], [("g1", "k3"), ("g0", "k1")])
+        self.assertEqual(slip["games"], 4)  # unpublished games still count

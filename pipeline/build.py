@@ -358,19 +358,24 @@ def add_territory(data: dict, raw: dict) -> None:
 
     Leads are from the student's side, like the curve; a variation without data gets null.
     """
-    sign = _sign(raw["studentColor"])
     data["territory"] = [territory_text(r.get("ownership")) for r in raw["overview"]["responses"]]
-    moves = data["game"]["moves"]
-    lines = raw.get("lines", {})
     for k in data["keyPoints"]:
-        i = k["position"]["moveIndex"]
-        k["territory"] = []
-        for line in k["lines"]:
-            got = lines.get(analyze.line_key(i, moves[i][0], line["moves"])) if line["moves"] else None
-            k["territory"].append(None if not got else {
-                "lead": [round(sign * v, 1) for v in got["scoreLead"]],
-                "own": [territory_text(o) for o in got["ownership"]],
-            })
+        k["territory"] = line_territory(k, data["game"]["moves"], raw)
+
+
+def line_territory(k: dict, moves: list, raw: dict) -> list[dict | None]:
+    """Lead (student's side) and territory after each step of each variation of a key point."""
+    sign = _sign(raw["studentColor"])
+    lines = raw.get("lines", {})
+    i = k["position"]["moveIndex"]
+    out = []
+    for line in k["lines"]:
+        got = lines.get(analyze.line_key(i, moves[i][0], line["moves"])) if line["moves"] else None
+        out.append(None if not got else {
+            "lead": [round(sign * v, 1) for v in got["scoreLead"]],
+            "own": [territory_text(o) for o in got["ownership"]],
+        })
+    return out
 
 
 def build(cfg: Config, game_id: str, engine: LazyEngine | None, log=print) -> dict:
