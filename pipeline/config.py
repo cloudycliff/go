@@ -31,6 +31,11 @@ class Config:
         return ROOT / "raw"
 
     @property
+    def local_raw_dir(self) -> Path:
+        """Analyses kept on this computer only (git-ignored): not committed, not on the site."""
+        return ROOT / "local" / "raw"
+
+    @property
     def cache_dir(self) -> Path:
         return ROOT / ".cache"
 

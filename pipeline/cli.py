@@ -6,12 +6,13 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 import unicodedata
 from datetime import datetime
 from pathlib import Path
 
 from . import analyze, build, fox, sgf
-from .config import Config, load
+from .config import ROOT, Config, load
 from .katago import KataGo, KataGoError
 
 
@@ -47,9 +48,14 @@ def _cached_list(cfg: Config) -> tuple[str, list[fox.FoxGame]]:
     return uid, [g for g in fox.list_games(uid) if g.size == 19]
 
 
+def _ids(folder: Path) -> set[str]:
+    return {p.name.split(".")[0] for p in folder.glob("*.json.gz")}
+
+
 def cmd_list(cfg: Config, args: argparse.Namespace) -> int:
     uid, games = _cached_list(cfg)
-    analyzed = {p.name.split(".")[0] for p in cfg.raw_dir.glob("*.json.gz")}
+    analyzed = _ids(cfg.raw_dir)
+    local = _ids(cfg.local_raw_dir)
     _out(f"野狐昵称 {cfg.fox_nickname}（UID {uid}），最近 {min(args.limit, len(games))} 局 19 路对局：")
     _out()
     _out(" #  日期              执色 对手               段位   结果              手数  棋局 ID")
@@ -57,14 +63,15 @@ def cmd_list(cfg: Config, args: argparse.Namespace) -> int:
         color = g.student_color(uid)
         opponent, opp_rank = (g.white, g.white_rank) if color == "B" else (g.black, g.black_rank)
         won = (g.winner == 1 and color == "B") or (g.winner == 2 and color == "W")
-        mark = "✓" if g.chessid in analyzed else " "
+        mark = "✓" if g.chessid in analyzed else "○" if g.chessid in local else " "
         _out(
             f"{i:>2}{mark} {g.start:%Y-%m-%d %H:%M}  {'黑' if color == 'B' else '白'}   "
             f"{_pad(opponent, 18)} {_pad(opp_rank.label_zh(), 6)} "
             f"{'胜' if won else '负'} {_pad(g.result_text(), 14)} {g.moves:>4}  {g.chessid}  {_flags(g)}"
         )
     _out()
-    _out("✓ = 已分析。用 `python -m pipeline analyze <序号或棋局 ID>` 分析一局。")
+    _out("✓ = 已分析并发布；○ = 只在本机分析过（collect），analyze 它就会发布到网站。")
+    _out("用 `python -m pipeline analyze <序号或棋局 ID>` 分析一局。")
     return 0
 
 
@@ -159,6 +166,22 @@ def cmd_publish(cfg: Config, args: argparse.Namespace) -> int:
 
 def _analyze_one(cfg: Config, game_id: str, text: str, color: str | None, force: bool) -> int:
     """Whole-game analysis (unless already done), then the deep pass and the page data."""
+    raw_path = cfg.raw_dir / f"{game_id}.json.gz"
+    local_path = cfg.local_raw_dir / f"{game_id}.json.gz"
+    if not raw_path.exists() and local_path.exists() and not force:
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.replace(raw_path)
+        _out(f"用本机已有的整盘分析（local/raw → raw/{raw_path.name}）。")
+    if raw_path.exists() and not force:
+        _out(f"{raw_path.name} 已有整盘分析（要重新分析请加 --force），直接生成复盘。")
+        return _build(cfg, [game_id], use_engine=True)
+    code = _overview(cfg, game_id, text, color, raw_path)
+    return code or _build(cfg, [game_id], use_engine=True)
+
+
+def _overview(cfg: Config, game_id: str, text: str, color: str | None, raw_path: Path,
+              engine: KataGo | None = None) -> int:
+    """The whole-game pass only, saved to `raw_path`. Uses `engine` when given, else starts one."""
     if color is None:
         _out(f"棋局 {game_id}：无法判断孩子执黑还是执白。")
         return 1
@@ -166,10 +189,6 @@ def _analyze_one(cfg: Config, game_id: str, text: str, color: str | None, force:
     if game.size != 19:
         _out(f"这是 {game.size} 路对局，目前只复盘 19 路对局。")
         return 1
-    raw_path = cfg.raw_dir / f"{game_id}.json.gz"
-    if raw_path.exists() and not force:
-        _out(f"{raw_path.name} 已有整盘分析（要重新分析请加 --force），直接生成复盘。")
-        return _build(cfg, [game_id], use_engine=True)
 
     rank = game.black_rank if color == "B" else game.white_rank
     _out(
@@ -179,17 +198,22 @@ def _analyze_one(cfg: Config, game_id: str, text: str, color: str | None, force:
     )
     _out(f"孩子执{'黑' if color == 'B' else '白'}，段位 {rank.label_zh() if rank else '未知'}，"
          f"HumanSL 档位 {analyze.student_profile(game, color)}")
-    _out("启动 KataGo……")
+    own = engine is None
     try:
-        with KataGo(cfg.katago) as engine:
-            version = engine.version()
-            _out(f"KataGo {version['version']} 已就绪，开始整盘分析（每个局面 {cfg.overview_visits} visits）")
-            responses, params = analyze.overview(engine, game, color, cfg.overview_visits)
-            for warning in engine.warnings():
-                _out(f"  {warning}")
+        if own:
+            _out("启动 KataGo……")
+            engine = KataGo(cfg.katago)
+        version = engine.version()
+        _out(f"KataGo {version['version']} 已就绪，开始整盘分析（每个局面 {cfg.overview_visits} visits）")
+        responses, params = analyze.overview(engine, game, color, cfg.overview_visits)
+        for warning in engine.warnings():
+            _out(f"  {warning}")
     except KataGoError as e:
         _out(f"分析失败：{e}")
         return 1
+    finally:
+        if own and engine is not None:
+            engine.close()
     analyze.save_raw(
         raw_path,
         game=game,
@@ -200,9 +224,42 @@ def _analyze_one(cfg: Config, game_id: str, text: str, color: str | None, force:
         params=params,
         responses=responses,
     )
-    _out(f"完成，用时 {params['seconds']:.0f} 秒，原始结果已保存到 raw/{raw_path.name}")
+    _out(f"完成，用时 {params['seconds']:.0f} 秒，原始结果已保存到 {raw_path.relative_to(ROOT).as_posix()}")
     _print_curve(responses, color)
-    return _build(cfg, [game_id], use_engine=True)
+    return 0
+
+
+def cmd_collect(cfg: Config, args: argparse.Namespace) -> int:
+    """Whole-game analysis of recent games into local/raw/, for statistics across games.
+
+    Nothing is committed or published; `analyze <id>` later moves a game to raw/ and builds its page.
+    """
+    from . import publish
+
+    uid, games = _cached_list(cfg)
+    done = _ids(cfg.raw_dir) | _ids(cfg.local_raw_dir)
+    todo = [g for g in games[: args.limit]
+            if g.chessid not in done and g.student_color(uid) and g.moves >= publish.MIN_MOVES]
+    if not todo:
+        _out("最近的对局都已分析过。")
+        return 0
+    _out(f"要在本机分析 {len(todo)} 局（只做整盘分析，不发布）。")
+    failed = 0
+    with KataGo(cfg.katago) as engine:
+        for n, g in enumerate(todo, 1):
+            _out(f"[{n}/{len(todo)}] {g.start:%Y-%m-%d %H:%M} {g.chessid}")
+            try:
+                text = fox.fetch_sgf(g.chessid)
+            except fox.FoxError as e:
+                _out(f"  下载棋谱失败：{e}")
+                failed += 1
+                continue
+            path = cfg.local_raw_dir / f"{g.chessid}.json.gz"
+            if _overview(cfg, g.chessid, text, g.student_color(uid), path, engine):
+                failed += 1
+            time.sleep(1)  # the Fox API is unofficial: keep requests slow
+    _out(f"完成 {len(todo) - failed} 局" + (f"，{failed} 局失败" if failed else "") + "，保存在 local/raw/。")
+    return 1 if failed else 0
 
 
 def _build(cfg: Config, game_ids: list[str], use_engine: bool) -> int:
@@ -313,6 +370,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max", type=int, default=3, help="--latest 一次最多分析几局（默认 3）")
     p.add_argument("--publish", action="store_true", help="完成后提交 site/ 和 raw/ 并推送（网站随之更新）")
     p.set_defaults(func=cmd_analyze)
+
+    p = sub.add_parser("collect", help="在本机分析最近的对局（只做整盘分析，不发布），给多盘统计用")
+    p.add_argument("--limit", type=int, default=20, help="看最近几局（默认 20）")
+    p.set_defaults(func=cmd_collect)
 
     p = sub.add_parser("publish", help="提交 site/ 和 raw/ 并推送")
     p.add_argument("-m", "--message", help="提交说明")

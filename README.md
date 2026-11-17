@@ -22,6 +22,7 @@ python -m pipeline list              # 最近的 19 路对局
 python -m pipeline analyze --latest --publish   # 抓新对局 → 分析 → 提交推送（网站自动更新）；没有新对局就直接结束
 python -m pipeline analyze 3         # 按序号或棋局 ID：整盘分析 → 深度分析 → 生成 site/data（加 --publish 顺便发布）
 python -m pipeline analyze --sgf a.sgf --color B
+python -m pipeline collect           # 在本机分析最近 20 局（只做整盘分析，存 local/raw/，不发布），给多盘统计用
 python -m pipeline build             # 改了算法后，从 raw/ 重新生成全部页面数据（缺的深度分析和变化形势会补算；--no-engine 不跑 KataGo）
 python -m pipeline serve             # 本地预览 http://localhost:8000/ （iPad 预览加 --bind 0.0.0.0）
 python -m pipeline validate          # 用 10000 visits 和更强的人类档位复核关键点
