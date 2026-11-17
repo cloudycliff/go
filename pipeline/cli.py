@@ -286,6 +286,21 @@ def cmd_build(cfg: Config, args: argparse.Namespace) -> int:
     return _build(cfg, ids, use_engine=not args.no_engine)
 
 
+def cmd_stats(cfg: Config, args: argparse.Namespace) -> int:
+    """Statistics across every analysed game, published or local, into local/report.md."""
+    from . import stats
+
+    games = stats.load_all([(cfg.raw_dir, True), (cfg.local_raw_dir, False)])
+    if not games:
+        _out("还没有分析过的对局。")
+        return 1
+    path = ROOT / "local" / "report.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(stats.report(games), encoding="utf-8")
+    _out(f"已生成 {path.relative_to(ROOT).as_posix()}（{len(games)} 局）。这个文件只在本机，不会提交。")
+    return 0
+
+
 def cmd_serve(cfg: Config, args: argparse.Namespace) -> int:
     import functools
     import http.server
@@ -374,6 +389,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("collect", help="在本机分析最近的对局（只做整盘分析，不发布），给多盘统计用")
     p.add_argument("--limit", type=int, default=20, help="看最近几局（默认 20）")
     p.set_defaults(func=cmd_collect)
+
+    p = sub.add_parser("stats", help="多盘统计：已发布和本机的全部对局 → local/report.md")
+    p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("publish", help="提交 site/ 和 raw/ 并推送")
     p.add_argument("-m", "--message", help="提交说明")
