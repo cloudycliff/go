@@ -32,5 +32,6 @@ python -m pipeline publish           # 只提交推送 site/ 和 raw/
 python -m unittest discover -s tests
 ```
 
-定时运行：`scripts\update.cmd` 等同于 `analyze --latest --publish`，输出追加到 `logs\update.log`，
-可以直接挂到 Windows 任务计划程序。
+定时运行：`scripts\update.cmd` 等同于 `analyze --latest --publish --max 10`，输出追加到 `logs\update.log`。
+`powershell -ExecutionPolicy Bypass -File scripts\schedule.ps1` 把它注册成每天凌晨 2:00 的 Windows 计划任务
+`go-review-update`（只在本用户登录时运行，可从睡眠唤醒，错过了开机后补跑）。删除：`Unregister-ScheduledTask -TaskName go-review-update`。
