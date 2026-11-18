@@ -7,4 +7,7 @@ if not exist logs mkdir logs
 echo ==== %date% %time% >> logs\update.log
 rem Up to 10 new games a run (a busy weekend); the rest wait for the next run.
 python -m pipeline analyze --latest --publish --max 10 >> logs\update.log 2>&1
-exit /b %errorlevel%
+set rc=%errorlevel%
+rem The task runs in a headless console that drops the exit code, so it goes in the log too.
+echo ==== exit code %rc% >> logs\update.log
+exit /b %rc%

@@ -5,12 +5,14 @@
 # - Runs as the current user while logged on (no password stored; git push uses this user's credentials).
 # - Wakes the computer from sleep for it, and runs at the next start if the computer was off at 2:00.
 # - Stopped after 3 hours, so a hung run cannot block the next day.
+# - Runs in a headless console (conhost --headless), so no window opens. conhost does not pass on the
+#   exit code (the task always reports 0); update.cmd writes it to logs\update.log instead.
 
 param([string]$At = "02:00")
 
 $name = "go-review-update"
 $script = Join-Path $PSScriptRoot "update.cmd"
-$action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$script`"" -WorkingDirectory (Split-Path $PSScriptRoot)
+$action = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless cmd.exe /c `"$script`"" -WorkingDirectory (Split-Path $PSScriptRoot)
 $trigger = New-ScheduledTaskTrigger -Daily -At $At
 $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 3) `
     -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
