@@ -2,7 +2,6 @@
 
 [student]
 fox_nickname = "your-fox-nickname"
-age = 10
 
 [katago]
 exe = 'C:\src\go\LizzieYzy Next NVIDIA\app\engines\katago\windows-x64\katago.exe'

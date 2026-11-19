@@ -2,7 +2,7 @@
 
 把在野狐的对局拉下来，用本机 KataGo 复盘，生成静态网页发布到 Cloudflare Pages。
 
-设计文档：[docs/design-v1.md](docs/design-v1.md)；进度：[docs/progress.md](docs/progress.md)
+从零部署（GitHub、Cloudflare Pages、定时任务）：[docs/deploy.md](docs/deploy.md)；设计文档：[docs/design-v1.md](docs/design-v1.md)；进度：[docs/progress.md](docs/progress.md)
 
 ## 准备
 

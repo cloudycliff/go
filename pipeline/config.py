@@ -20,7 +20,6 @@ class KataGoPaths:
 @dataclass(frozen=True)
 class Config:
     fox_nickname: str
-    age: int
     katago: KataGoPaths
     overview_visits: int
     deep_visits: int
@@ -59,7 +58,6 @@ def load(path: Path | None = None) -> Config:
         raise SystemExit("config.toml 里缺少 [student] fox_nickname。")
     return Config(
         fox_nickname=nickname,
-        age=int(student.get("age", 10)),
         katago=KataGoPaths(
             exe=_path(katago["exe"]),
             model=_path(katago["model"]),
